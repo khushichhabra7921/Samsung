@@ -147,7 +147,7 @@ function drawMotion() {
   const times = current.timeline.motion;
   const length = current.result.duration_ms;
   const step = width / Math.max(1, times.length);
-  context.fillStyle = "#748165";
+  context.fillStyle = "#7b91b7";
   for (const [time, score] of times) {
     const level = 2 + score * (height - 7);
     context.fillRect(time * width / length, (height - level) / 2, Math.max(1, step - 2), level);
@@ -188,11 +188,11 @@ function drawTracks(canvas, frame, sourceWidth, sourceHeight, fit) {
   const dx = (width - renderedWidth) / 2;
   const dy = (height - renderedHeight) / 2;
   for (const hand of frame.hands) {
-    const color = hand.side === "left" ? "#ddfc75" : "#a4f1ed";
+    const color = hand.side === "left" ? "#aec7ff" : "#a4f1ed";
     const points = hand.points.map(([x, y]) => [x * renderedWidth + dx, y * renderedHeight + dy]);
     context.strokeStyle = color;
     context.lineWidth = 1.4;
-    context.shadowColor = "#0b120a";
+    context.shadowColor = "#080d16";
     context.shadowBlur = 3;
     context.beginPath();
     for (const [from, to] of handEdges) {
@@ -217,7 +217,7 @@ function drawTracks(canvas, frame, sourceWidth, sourceHeight, fit) {
       context.strokeRect(left, top, boxWidth, boxHeight);
       const text = `${hand.side.toUpperCase()} · ID ${String(hand.id).padStart(2, "0")}`;
       context.font = "600 9px ui-monospace, monospace";
-      context.fillStyle = "#151911";
+      context.fillStyle = "#101827";
       context.fillRect(left, top - 14, context.measureText(text).width + 9, 14);
       context.fillStyle = color;
       context.fillText(text, left + 4, top - 4);
@@ -312,14 +312,102 @@ function display(result) {
   showNotice(result.export_error || "", Boolean(result.export_error));
 }
 
+function setupOpening() {
+  const background = get("opening-video");
+  const toggle = get("opening-toggle");
+  const motion = matchMedia("(prefers-reduced-motion: reduce)");
+  let wantsPlayback = !motion.matches;
+  let visible = false;
+
+  function syncPlayback() {
+    if (!visible || document.hidden || !wantsPlayback) {
+      background.pause();
+      return;
+    }
+    background.play().catch((error) => {
+      if (error.name !== "AbortError") wantsPlayback = false;
+    });
+  }
+
+  toggle.hidden = false;
+  toggle.addEventListener("click", () => {
+    wantsPlayback = background.paused;
+    syncPlayback();
+  });
+  background.addEventListener("playing", () => { toggle.textContent = "Pause background"; });
+  background.addEventListener("pause", () => { toggle.textContent = "Play background"; });
+  background.addEventListener("error", () => { toggle.hidden = true; });
+  motion.addEventListener("change", () => {
+    wantsPlayback = !motion.matches;
+    syncPlayback();
+  });
+  document.addEventListener("visibilitychange", syncPlayback);
+  new IntersectionObserver(([entry]) => {
+    visible = entry.isIntersecting;
+    syncPlayback();
+  }, { threshold: 0.15 }).observe(get("top"));
+}
+
+function drawDemoSignal(canvas, { result, timeline }) {
+  const { width, height } = canvas.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.max(1, Math.round(width * dpr));
+  canvas.height = Math.max(1, Math.round(height * dpr));
+  const context = canvas.getContext("2d");
+  context.scale(dpr, dpr);
+  const x = (time) => time * width / result.duration_ms;
+  const baseline = height * 0.86;
+
+  context.strokeStyle = "#293b57";
+  context.lineWidth = 1;
+  context.beginPath();
+  for (let row = 0; row <= 4; row++) {
+    const y = 10 + row * (baseline - 10) / 4;
+    context.moveTo(0, y);
+    context.lineTo(width, y);
+  }
+  for (let time = 0; time < result.duration_ms; time += 2000) {
+    context.moveTo(x(time), 10);
+    context.lineTo(x(time), baseline);
+  }
+  context.stroke();
+
+  for (const { start_ms, end_ms } of result.highlights) {
+    const left = x(start_ms);
+    const selectedWidth = x(end_ms) - left;
+    context.fillStyle = "#769fff26";
+    context.fillRect(left, 10, selectedWidth, baseline - 10);
+    context.fillStyle = "#8aabf9";
+    context.fillRect(left, baseline, selectedWidth, 2);
+  }
+
+  const bars = timeline.motion;
+  const barWidth = Math.max(1, width / Math.max(1, bars.length) * 0.46);
+  const shading = context.createLinearGradient(0, 10, 0, baseline);
+  shading.addColorStop(0, "#c3d7ff");
+  shading.addColorStop(1, "#4c6ca35e");
+  context.fillStyle = shading;
+  for (const [time, score] of bars) {
+    const level = 2 + score * (baseline - 16);
+    context.fillRect(x(time), baseline - level, barWidth, level);
+  }
+}
+
+setupOpening();
 const demo = loadResult(demoSource);
 demo.then((result) => {
   get("hero-duration").textContent = timestamp(result.result.duration_ms, false);
-  const canvas = get("hero-tracks");
+  get("signal-preview").hidden = false;
+  const signal = get("overview-signal");
+  const resizeSignal = () => drawDemoSignal(signal, result);
+  new ResizeObserver(resizeSignal).observe(signal);
+  resizeSignal();
+
+  const canvas = get("sample-landmarks");
   const frame = nearestFrame(result.timeline.hands, Number(canvas.dataset.time));
   if (frame?.hands.length) {
     canvas.hidden = false;
-    const poster = get("hero-poster");
+    const poster = get("sample-poster");
     const resize = () => drawTracks(canvas, frame, poster.naturalWidth, poster.naturalHeight, "cover");
     new ResizeObserver(resize).observe(canvas);
     poster.addEventListener("load", resize, { once: true });
