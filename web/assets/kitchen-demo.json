@@ -1,0 +1,29 @@
+{
+  "schema_version": "handscribe.xr/v1",
+  "team_id": "404NotFound",
+  "video_id": "kitchen-demo",
+  "duration_ms": 23333,
+  "duration_sec": 23.333,
+  "budget_ms": 3499,
+  "highlight_duration_ms": 3499,
+  "mode": "preview",
+  "device": "cpu",
+  "status": "short_clip_preview",
+  "highlights": [
+    {
+      "start_ms": 2000,
+      "end_ms": 5499,
+      "score": 0.5533,
+      "labels": []
+    }
+  ],
+  "actions": [],
+  "video_label": null,
+  "diagnostics": {
+    "sampled_frames": 350,
+    "keyframes": 71,
+    "blur_pct": 0.0,
+    "covered_pct": 0.0,
+    "hand_visibility_pct": 100.0
+  }
+}

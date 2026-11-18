@@ -1,0 +1,29 @@
+name: HandScribe XR checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: 'requirements*.txt'
+      - name: Install runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg libegl1 libgl1 libgles2 libportaudio2
+          python -m pip install -r requirements-dev.txt
+      - name: Check Python and browser scripts
+        run: |
+          python -m ruff check handscribe_xr tests
+          node --check web/app.js
+          python -m pytest

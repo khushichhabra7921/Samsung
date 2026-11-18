@@ -14,7 +14,7 @@ log = logging.getLogger(__name__)
 
 
 class OpenVocabDetector:
-    def __init__(self, cfg: ObjectsConfig, device: str):
+    def __init__(self, cfg: ObjectsConfig, device: str, *, local_files_only: bool = False):
         import torch
         from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 
@@ -22,8 +22,11 @@ class OpenVocabDetector:
         self.device = device
         self.family = "grounding-dino" if "grounding" in cfg.model.lower() else "owl"
         self.dtype = torch.float16 if device == "cuda" else torch.float32
-        self.processor = AutoProcessor.from_pretrained(cfg.model)
-        self.model = AutoModelForZeroShotObjectDetection.from_pretrained(cfg.model, dtype=self.dtype)
+        self.processor = AutoProcessor.from_pretrained(cfg.model, local_files_only=local_files_only)
+        self.model = AutoModelForZeroShotObjectDetection.from_pretrained(
+            cfg.model, dtype=self.dtype, local_files_only=local_files_only,
+            use_safetensors=True if local_files_only else None,
+        )
         self.model.to(device).eval()
         log.info("objects: %s (%s) on %s", cfg.model, self.family, device)
 
@@ -44,7 +47,10 @@ class OpenVocabDetector:
         import torch
 
         prompts = [[f"a photo of a {v.prompt}" for v in vocab]] * len(batch)
-        inputs = self.processor(text=prompts, images=batch, return_tensors="pt").to(self.device)
+        inputs = self.processor(
+            text=prompts, images=batch, return_tensors="pt", padding="max_length", truncation=True,
+            max_length=self.model.config.text_config.max_position_embeddings,
+        ).to(self.device)
         inputs["pixel_values"] = inputs["pixel_values"].to(self.dtype)
         outputs = self.model(**inputs)
         # OWLv2 pads images to a square at the bottom/right: boxes are relative to that square.

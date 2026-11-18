@@ -73,14 +73,17 @@ def _tensor(out):  # transformers 5 returns a ModelOutput, 4.x a tensor
 class SiglipEmbedder:
     """Image/text embeddings (L2-normalised) from a SigLIP checkpoint."""
 
-    def __init__(self, model_name: str, device: str):
+    def __init__(self, model_name: str, device: str, *, local_files_only: bool = False):
         import torch
         from transformers import AutoModel, AutoProcessor
 
         self.device = device
         self.dtype = torch.float16 if device == "cuda" else torch.float32
-        self.processor = AutoProcessor.from_pretrained(model_name)
-        self.model = AutoModel.from_pretrained(model_name, dtype=self.dtype).to(device).eval()
+        self.processor = AutoProcessor.from_pretrained(model_name, local_files_only=local_files_only)
+        self.model = AutoModel.from_pretrained(
+            model_name, dtype=self.dtype, local_files_only=local_files_only,
+            use_safetensors=True if local_files_only else None,
+        ).to(device).eval()
         log.info("steps: embedder %s on %s", model_name, device)
 
     def images(self, crops_bgr: list[np.ndarray], batch: int = 32) -> np.ndarray:
