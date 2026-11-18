@@ -16,6 +16,7 @@ COPY --chown=65534:65534 handscribe_xr/ handscribe_xr/
 COPY --chown=65534:65534 BiosHackathon/src/egovision/ BiosHackathon/src/egovision/
 COPY --chown=65534:65534 web/ web/
 COPY --chown=65534:65534 --chmod=755 run.sh serve.sh ./
+RUN sed -i 's/\r$//' run.sh serve.sh
 
 USER 65534:65534
 EXPOSE 8000
