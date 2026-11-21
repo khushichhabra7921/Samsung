@@ -76,6 +76,12 @@ Pass a normalized vocabulary with the Track 04 label strings as `{"verbs": [...]
 
 Model loading uses local files only. `--device auto` chooses CUDA when available. Use `--device cpu` to force CPU or `--device cuda` to require a GPU. Semantic mode reports a setup error if required assets are missing.
 
+## Track 04 submission status
+
+**Important:** the current `handscribe.xr/v1` JSON is a development report, not yet the organiser's final submission schema. The official student kit (`manifest.csv`, `supported_classes.json`, `validate.py`, `TEAM_README.md`, and sample JSONs) is required before the export adapter and final package can be completed. Do not submit the development JSON files as official predictions.
+
+The intended package contains `run.sh`, `code/`, `weights/`, `requirements.txt`, and `outputs/` (one official-schema JSON per video), plus a reproducibility README. See [Track 04 submission readiness](docs/TRACK04_SUBMISSION_READINESS.md) for the exact blockers, current CLI invocation, packaging checklist, and presentation claims that need reconciliation.
+
 ## Validation and submission
 
 Run `.venv/bin/python -m pip install -r requirements-dev.txt`, then `.venv/bin/python -m pytest`. The tests exercise evidence fusion, gap filling, boundary refinement, coverage, strict budget handling, deterministic processing, and a real upload-to-export flow.
