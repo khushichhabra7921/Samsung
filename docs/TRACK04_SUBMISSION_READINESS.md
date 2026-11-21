@@ -76,3 +76,39 @@ This branch intentionally does not add:
 - claims of official validator compliance
 
 These require the organiser student kit and a real inference/validation run.
+
+
+## Student kit received (2026-11-22)
+
+The uploaded ZIP was inspected. It contains:
+- `manifest.csv` (187 rows: 138 EPIC-KITCHENS-100, 49 FPVSum)
+- `supported_classes.json` (16 video labels, 98 verbs, 301 nouns)
+- `TEAM_README.md`
+- two sample JSONs: `P02_109.json` and `skiing_03.json`
+
+**The uploaded ZIP does not contain `validate.py` or an `examples/` directory**, despite the TEAM_README describing both. The two sample JSONs are at the ZIP root. Obtain the actual validator from the organiser; do not substitute a guessed script and call it official.
+
+The Track 04 adapter was added at `handscribe_xr/track04.py`. It accepts the required two positional arguments, loads the manifest, runs semantic inference, and exports the six required top-level fields. Root `run.sh` now routes exactly two positional arguments through this adapter while retaining the previous development CLI for other invocations.
+
+Set these environment variables before invoking it:
+```sh
+export TEAM_ID="<exact organiser-assigned team ID>"
+export TRACK04_KIT_DIR="/path/to/Student package_track04"
+./run.sh P02_109.mp4 outputs/P02_109.json
+```
+
+On Windows PowerShell:
+```powershell
+$env:TEAM_ID = "<exact organiser-assigned team ID>"
+$env:TRACK04_KIT_DIR = "D:\path\to\Student package_track04"
+.\run.sh P02_109.mp4 outputs/P02_109.json
+```
+
+### Known blockers — do not call this fully submission-ready yet
+
+1. **FPVSum category classifier is missing.** The current HandScribe model predicts verb/noun actions, not one of the 14 FPVSum video categories. The adapter currently emits the schema-valid `other` label with score `0.0` for FPVSum as an explicit fallback. This is not a meaningful prediction and will score poorly on Label Accuracy (10%). A trained/integrated video-category classifier is required.
+2. **Short-video highlight constraint conflict.** The manifest includes EPIC clips such as `P26_30` (15.28 s) and `P28_23` (25.16 s). Their 15% budgets are below 4 seconds, while TEAM_README requires at least one highlight of at least 4 seconds. Both conditions cannot be met simultaneously. Ask the organisers which rule takes precedence for these videos.
+3. **Team ID is not confirmed.** `T07` appears in sample JSONs, but sample files are examples and do not establish this team's assigned ID. The adapter therefore requires the actual ID via `TEAM_ID`.
+4. **Official validator absent from upload.** The adapter has not been verified against the organiser's `validate.py`; do not claim official validation until that exact file is obtained and run.
+
+The adapter intentionally errors instead of writing an output when it cannot produce a highlight meeting the stated 4-second minimum. This prevents silently generating a file known to violate the documented rule.
