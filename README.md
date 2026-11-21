@@ -78,6 +78,18 @@ Model loading uses local files only. `--device auto` chooses CUDA when available
 
 ## Track 04 submission status
 
+The official student ZIP is now inspected and the Track 04 adapter is implemented at `handscribe_xr/track04.py`. Root `run.sh` accepts the required two-argument form `./run.sh <video.mp4> <out.json>` and routes it through semantic inference and the official-schema exporter. The previous development CLI remains available for invocations with flags or additional arguments.
+
+Before running, extract the organiser ZIP and set:
+```sh
+export TEAM_ID="<exact organiser-assigned team ID>"
+export TRACK04_KIT_DIR="/path/to/Student package_track04"
+./run.sh P02_109.mp4 outputs/P02_109.json
+```
+
+**Not yet fully submission-ready:** the uploaded ZIP omitted the promised `validate.py`; the current system has no FPVSum video-category classifier (the adapter explicitly falls back to `other` with score 0.0 for those 49 videos); and some manifest videos are too short to satisfy both the 4-second minimum highlight and the 15% duration cap. The exact team ID is also not confirmed. See [Track 04 submission readiness](docs/TRACK04_SUBMISSION_READINESS.md) for details. Do not claim official validator compliance until the organiser's actual validator has been run.
+
+
 **Important:** the current `handscribe.xr/v1` JSON is a development report, not yet the organiser's final submission schema. The official student kit (`manifest.csv`, `supported_classes.json`, `validate.py`, `TEAM_README.md`, and sample JSONs) is required before the export adapter and final package can be completed. Do not submit the development JSON files as official predictions.
 
 The intended package contains `run.sh`, `code/`, `weights/`, `requirements.txt`, and `outputs/` (one official-schema JSON per video), plus a reproducibility README. See [Track 04 submission readiness](docs/TRACK04_SUBMISSION_READINESS.md) for the exact blockers, current CLI invocation, packaging checklist, and presentation claims that need reconciliation.
