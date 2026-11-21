@@ -19,7 +19,7 @@ from .recognition import ModelSetupError
 from .contracts import Report
 
 
-KIT = ROOT / "track04_student_kit"
+KIT = Path(os.environ.get("TRACK04_KIT_DIR", str(ROOT / "track04_student_kit"))).expanduser().resolve()
 MANIFEST = KIT / "manifest.csv"
 VOCABULARY = KIT / "supported_classes.json"
 
