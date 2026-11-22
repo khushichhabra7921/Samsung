@@ -14,7 +14,7 @@ TEAM_ID/
 └── README.md
 ```
 
-The official `manifest.csv` and `supported_classes.json` are stored at the package root as runtime inputs to the inference adapter. They are required by the current Track 04 adapter.
+The official `manifest.csv` and `supported_classes.json` are stored in `code/` alongside the inference source, keeping the package root limited to the six required entries.
 
 ## Setup
 

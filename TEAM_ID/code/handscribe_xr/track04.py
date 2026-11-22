@@ -21,8 +21,8 @@ from .recognition import ModelSetupError
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PACKAGE_ROOT = PROJECT_ROOT.parent if PROJECT_ROOT.name == "code" else PROJECT_ROOT
-MANIFEST = PACKAGE_ROOT / "manifest.csv"
-CLASSES = PACKAGE_ROOT / "supported_classes.json"
+MANIFEST = PROJECT_ROOT / "manifest.csv"
+CLASSES = PROJECT_ROOT / "supported_classes.json"
 MIN_HIGHLIGHT_SEC = 4.0
 BUDGET_FRACTION = 0.15
 
