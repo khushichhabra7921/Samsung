@@ -66,6 +66,7 @@ class Analysis:
     report: Report
     motion: list[list[int | float]]
     hands: list[dict]
+    video_categories: tuple[tuple[str, float], ...] = ()
 
 
 def _display_frame(frame: av.VideoFrame, rotation: int) -> np.ndarray:
@@ -292,6 +293,19 @@ def analyze(
         device=semantic.device if semantic else "cpu", status=status, highlights=highlights,
         actions=actions, video_label=timeline.video_label(), diagnostics=diagnostics,
     )
+    category_vectors = [
+        key.prediction.category_scores
+        for key in keys
+        if key.prediction is not None and key.prediction.category_scores is not None
+    ]
+    video_categories: tuple[tuple[str, float], ...] = ()
+    if semantic is not None and semantic.vocab.labels and category_vectors:
+        mean_scores = np.mean(np.stack(category_vectors), axis=0)
+        order = np.argsort(-mean_scores)
+        video_categories = tuple(
+            (semantic.vocab.labels[int(index)], float(mean_scores[int(index)]))
+            for index in order
+        )
     stride = max(1, math.ceil(len(keys) / 150))
     motion = [[key.sample.time_ms, round(key.sample.motion, 3)] for key in keys[::stride]]
-    return Analysis(report=report, motion=motion, hands=hands)
+    return Analysis(report=report, motion=motion, hands=hands, video_categories=video_categories)
