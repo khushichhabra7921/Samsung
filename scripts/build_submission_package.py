@@ -2,78 +2,37 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
-import math
 import os
+import re
+import shlex
 import shutil
 import sys
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-KEYS = {"team_id", "video_id", "duration_sec", "label", "actions", "highlights"}
+sys.path.insert(0, str(ROOT))
+from validate import check_directory, failures, load_classes, load_manifest
+
 
 def check_outputs(outputs: Path, team_id: str) -> None:
-    with (ROOT / "manifest.csv").open(encoding="utf-8-sig", newline="") as stream:
-        manifest = {row["video_id"]: row for row in csv.DictReader(stream)}
-    files = list(outputs.glob("*.json"))
-    if {p.stem for p in files} != set(manifest):
-        raise ValueError("outputs must contain exactly one JSON for each of the 187 manifest IDs.")
-    classes = json.loads((ROOT / "supported_classes.json").read_text(encoding="utf-8"))
-    labels, verbs, nouns = set(classes["labels"]), set(classes["verbs"]), set(classes["nouns"])
-    for path in files:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict) or set(data) != KEYS:
-            raise ValueError(f"{path.name}: incorrect six-field schema.")
-        if data["team_id"] != team_id or data["video_id"] != path.stem:
-            raise ValueError(f"{path.name}: team_id/video_id mismatch.")
-        duration = data["duration_sec"]
-        if isinstance(duration, bool) or not isinstance(duration,(int,float)) or not math.isfinite(duration) or duration <= 0:
-            raise ValueError(f"{path.name}: invalid duration.")
-        if abs(duration-float(manifest[path.stem]["duration_sec"])) > 0.5:
-            raise ValueError(f"{path.name}: duration differs from manifest by more than 0.5s.")
-        label=data["label"]
-        if not isinstance(label,dict) or label.get("name") not in labels:
-            raise ValueError(f"{path.name}: unsupported label.")
-        score=label.get("score")
-        if isinstance(score,bool) or not isinstance(score,(int,float)) or not math.isfinite(score) or not 0 <= score <= 1:
-            raise ValueError(f"{path.name}: invalid label score.")
-        if not isinstance(data["actions"],list) or len(data["actions"]) > 2000:
-            raise ValueError(f"{path.name}: invalid actions array.")
-        for action in data["actions"]:
-            if not isinstance(action,dict) or not {"segment","verb","noun","score"} <= set(action):
-                raise ValueError(f"{path.name}: malformed action.")
-            seg=action["segment"]
-            if not isinstance(seg,list) or len(seg)!=2 or any(isinstance(x,bool) or not isinstance(x,(int,float)) or not math.isfinite(x) for x in seg) or not 0 <= seg[0] < seg[1] <= duration+0.5:
-                raise ValueError(f"{path.name}: invalid action segment.")
-            if action["verb"] not in verbs or action["noun"] not in nouns:
-                raise ValueError(f"{path.name}: unsupported verb/noun.")
-            value=action["score"]
-            if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value) or not 0 <= value <= 1:
-                raise ValueError(f"{path.name}: invalid action score.")
-        highlights=data["highlights"]
-        if not isinstance(highlights,list) or not highlights:
-            raise ValueError(f"{path.name}: highlights must be non-empty.")
-        previous,total,longest=-1.0,0.0,0.0
-        for item in highlights:
-            seg=item.get("segment") if isinstance(item,dict) else None
-            if not isinstance(seg,list) or len(seg)!=2 or any(isinstance(x,bool) or not isinstance(x,(int,float)) or not math.isfinite(x) for x in seg) or not 0 <= seg[0] < seg[1] <= duration+0.5:
-                raise ValueError(f"{path.name}: invalid highlight segment.")
-            start,end=seg
-            if start < previous:
-                raise ValueError(f"{path.name}: highlights overlap or are unsorted.")
-            previous = end
-            total += end - start
-            longest = max(longest, end - start)
-        if longest < 4.0:
-            raise ValueError(f"{path.name}: no highlight is at least 4.0 seconds.")
-        if total > duration * 0.15 + 1e-9:
-            raise ValueError(f"{path.name}: highlights exceed 15% budget.")
+    """Run validate.py in strict mode; every manifest video needs a clean JSON."""
+    results = check_directory(
+        outputs, load_manifest(ROOT / "manifest.csv"), load_classes(ROOT / "supported_classes.json"), team_id,
+    )
+    problems = [
+        f"{name or outputs.name}: {message}"
+        for name, issues in results.items() for message in failures(issues, strict=True)
+    ]
+    if problems:
+        shown = "\n  ".join(problems[:20])
+        more = f"\n  ... and {len(problems) - 20} more" if len(problems) > 20 else ""
+        raise ValueError(f"{len(problems)} validation problem(s):\n  {shown}{more}")
 
 def build(team_id: str, outputs: Path, destination: Path) -> Path:
-    if not team_id.strip() or "/" in team_id or "\\" in team_id:
-        raise ValueError("Provide the exact organiser-assigned TEAM_ID.")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", team_id):
+        raise ValueError("Provide the exact organiser-assigned TEAM_ID (letters, digits, '_', '-', '.').")
     check_outputs(outputs,team_id)
     required=[ROOT/"weights"/"hand_landmarker.task",ROOT/"weights"/"owlv2"/"config.json",ROOT/"weights"/"siglip"/"config.json"]
     missing=[str(p.relative_to(ROOT)) for p in required if not p.is_file()]
@@ -104,18 +63,12 @@ def build(team_id: str, outputs: Path, destination: Path) -> Path:
         'if [ -n "$(printenv XR_PYTHON 2>/dev/null || true)" ]; then python="$(printenv XR_PYTHON)"; fi\n'
         'if [ -z "$(printenv XR_PYTHON 2>/dev/null || true)" ] && [ -x "$root/.venv/bin/python" ]; then python="$root/.venv/bin/python"; fi\n'
         'export PYTHONPATH="$root/code"\n'
+        'if [ -z "$(printenv HANDSCRIBE_TEAM_ID 2>/dev/null || true)" ]; then '
+        f'export HANDSCRIBE_TEAM_ID={shlex.quote(team_id)}; fi\n'
         'exec "$python" -m handscribe_xr.track04 "$@"\n',encoding="utf-8")
     os.chmod(package/"run.sh", 0o755)
-    (package/"README.md").write_text(
-        "HandScribe XR — Track 04 submission\n\n"
-        f"Team ID: {team_id}\n\n"
-        "Install Python 3.12 dependencies from requirements.txt and install a matching PyTorch wheel "
-        "using requirements-torch.txt. Local MediaPipe, OWLv2 and SigLIP assets are included under weights/.\n\n"
-        "Set HANDSCRIBE_TEAM_ID to the assigned ID, then run:\n\n"
-        f"export HANDSCRIBE_TEAM_ID={team_id}\n"
-        "./run.sh /path/to/VIDEO_ID.mp4 outputs/VIDEO_ID.json\n\n"
-        "Input and output filename stems must match manifest.csv. Run the organiser-provided "
-        "python validate.py --dir outputs/ when supplied.\n",encoding="utf-8")
+    readme = (ROOT / "docs" / "SUBMISSION_README.md").read_text(encoding="utf-8")
+    (package / "README.md").write_text(readme.replace("{TEAM_ID}", team_id), encoding="utf-8")
     archive=destination/(team_id+".zip")
     if archive.exists(): archive.unlink()
     with zipfile.ZipFile(archive,"w",zipfile.ZIP_DEFLATED) as bundle:

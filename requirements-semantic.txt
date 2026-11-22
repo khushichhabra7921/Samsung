@@ -1,4 +1,7 @@
-# Install the appropriate PyTorch and torchvision wheels first (see README).
+# For a CPU-only or specific CUDA build, install the matching PyTorch wheel first (see README);
+# pip treats e.g. torch 2.11.0+cpu as satisfying the pins below.
+torch==2.11.0
+torchvision==0.26.0
 transformers==5.22.1
 sentencepiece==0.2.2
 protobuf==7.36.2
