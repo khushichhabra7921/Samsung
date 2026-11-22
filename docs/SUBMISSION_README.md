@@ -45,7 +45,7 @@ Check outputs with the organiser's `python validate.py --dir outputs/`.
 
 ## Model architecture
 
-Nothing in the pipeline is trained or fine-tuned. It combines three public pretrained models with deterministic temporal logic.
+No network is trained or fine-tuned. The pipeline combines three public pretrained models, a verb–noun co-occurrence prior counted from the EPIC-KITCHENS-100 train split, and deterministic temporal logic.
 
 | Stage | Component | What it does |
 |---|---|---|
@@ -54,7 +54,8 @@ Nothing in the pipeline is trained or fine-tuned. It combines three public pretr
 | Hands | MediaPipe Hand Landmarker (float16) | Gives 21 landmarks per hand. Hands are then tracked by ID, voted left or right, smoothed with a One-Euro filter, re-identified within 3 s, and bridged across brief dropouts. The output is wrist motion per keyframe. |
 | Objects | OWLv2 (`google/owlv2-base-patch16-ensemble`) | Detects the 300 non-`other` nouns from the open vocabulary. A box counts as hand contact when two or more fingertips fall inside it. |
 | Verb, noun and category scores | SigLIP (`google/siglip-base-patch16-224`) | Compares each keyframe embedding with text prompts for the 98 verbs, 301 nouns and 16 video labels. A noun's score combines SigLIP (0.60), OWLv2 detection (0.25) and hand contact (0.15). |
-| Actions | Temporal grouping | Consecutive keyframes with the same verb–noun pair form one action. Its edges move to the nearest hand-motion minimum within ±1.2 s. Confidence combines visual score (0.55), contact (0.22), hand motion (0.08) and temporal consistency (0.15), and is reduced when a different object is in contact. |
+| Verb choice | Train-split prior | SigLIP verb log-odds are centred per video, which removes scene-wide bias such as `cook` on every kitchen frame. They are then combined with P(verb \| noun), counted from the EPIC-KITCHENS-100 **train** annotations. The posterior's top verb is used. `other` is never emitted, because it cannot match EPIC labels. |
+| Actions | Temporal grouping | Consecutive keyframes with the same verb–noun pair form one action. Its edges move to the nearest hand-motion minimum within ±1.2 s. Confidence combines visual score (0.55), contact (0.22), hand motion (0.08) and temporal consistency (0.15), and is reduced when a different object is in contact. Each segment is written with its five most likely verbs for the detected noun. Each alternative is scored by its posterior relative to the top verb, so it always ranks below it. |
 | Highlights | Greedy budgeted selection | Candidate windows of about 4–8 s snap to motion minima. Each is scored on action confidence, novelty, contact, motion and image quality. The selector then adds windows under the 15% budget, favouring verb–noun pairs not yet covered and visually distinct footage. |
 | Video label | Zero-shot SigLIP | EPIC-KITCHENS-100 videos get `cooking`, as the Student Package prescribes. FPVSum videos get the most likely of the 14 FPVSum categories, averaged over all keyframes. |
 
@@ -70,5 +71,6 @@ Nothing in the pipeline is trained or fine-tuned. It combines three public pretr
 - **Inputs:** the 187 videos in `manifest.csv`, downloaded by the team from the official sources. These are 138 EPIC-KITCHENS-100 validation videos and 49 FPVSum videos. Video files are not included in this package.
 - **Pretrained weights:** MediaPipe Hand Landmarker (Apache-2.0), OWLv2 and SigLIP (Apache-2.0, from Hugging Face). They are used as released, with no fine-tuning.
 - **Vocabulary:** `supported_classes.json` from the Student Package.
-- **Annotations:** none. No EPIC-KITCHENS-100 or FPVSum ground truth was used for training, tuning, or inference. Thresholds and weights are fixed heuristics in `code/handscribe_xr/`.
+- **EPIC-KITCHENS-100 train-split annotations** (public, `EPIC_100_train.csv`): used only to count how often each verb occurs with each noun. The counts are stored in `code/handscribe_xr/assets/epic100_train_prior.json` (3,568 pairs from 67,217 train actions) and rebuilt by `scripts/build_action_prior.py`. That script refuses to run if any manifest video is in its input. None of the 138 manifest videos is in the train split; all are validation videos.
+- **Evaluation-set annotations:** none. No EPIC-KITCHENS-100 validation or FPVSum ground truth was used for training, tuning, or inference. All other thresholds and weights are fixed heuristics in `code/handscribe_xr/`.
 - **Manifest use:** at inference time `manifest.csv` is used only to check the decoded duration and to tell an EPIC-KITCHENS video from an FPVSum one. The code contains no video IDs or per-video outputs.

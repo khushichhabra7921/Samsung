@@ -97,15 +97,45 @@ Install base and semantic dependencies as described above. Semantic mode needs l
 
 **Videos shorter than 26.67 s** (`P03_26`, `P26_30`, `P28_23` in the manifest) cannot meet both the 4.0 s minimum and the 15% budget. The Student Package treats "at least one highlight ≥ 4.0 s" as a hard check: a file that fails it is invalid and scores 0. Exceeding the budget only produces a warning and a soft penalty on coverage. These videos therefore get one 4.0 s highlight centred on their best-scoring moment.
 
+### Download the 187 videos
+
+The organisers do not distribute the videos. `scripts/download_videos.py` fetches each manifest ID from its official source:
+
+| Dataset | Videos | Source | Size |
+|---|---:|---|---:|
+| EPIC-KITCHENS-100 | 138 | `data.bris.ac.uk`, the endpoint used by the official [epic-kitchens-download-scripts](https://github.com/epic-kitchens/epic-kitchens-download-scripts). All 138 are EPIC-55-era recordings under `videos/test/`. Each file is MD5-checked against the official list, and interrupted downloads resume. | ~184 GB |
+| FPVSum | 49 | YouTube via `yt-dlp`. The name-to-ID map comes from [FPVSum_videolist.csv](https://github.com/azuxmioy/fpvsum/blob/master/crawler/FPVSum_videolist.csv), because names like `BikePolo_5yf797Lh4Oc_1` point to a different YouTube ID. Downloads are H.264 MP4 capped at 720p and need no ffmpeg. | ~2.5 GB |
+
+```sh
+python -m pip install yt-dlp
+python scripts/download_videos.py --dest /path/with/200GB/free                # all 187
+python scripts/download_videos.py --dest DIR --dataset fpvsum                 # FPVSum only
+python scripts/download_videos.py --dest DIR --ids P26_30,Ski_-Z5a4UQmZLs     # selected IDs
+python scripts/download_videos.py --dest DIR --list                           # print URLs only
+```
+
+The script checks free space, re-uses files that already pass the checksum, and at the end compares every duration with `manifest.csv` (±0.5 s). EPIC files average about 1.3 GB, so use a machine or external drive with around 200 GB free.
+
 ### Generate all 187 outputs
 
-Download the videos as described in `TEAM_README.md`, then run:
+Then run:
 
 ```sh
 python scripts/generate_outputs.py --videos /path/to/downloads
 ```
 
 The script finds `<video_id>.mp4` in any letter case anywhere under the folder, including the EPIC downloader's `P01/videos/P01_11.MP4` layout. It loads the models once and skips outputs that already pass validation, so an interrupted run can resume. At the end it lists failures, any manifest videos it could not find, and a strict validation result.
+
+### Verb prior and development check
+
+EPIC verbs combine per-video-centred SigLIP scores with P(verb | noun) from the public EPIC-KITCHENS-100 **train** annotations. These are stored in `handscribe_xr/assets/epic100_train_prior.json`. Each segment is written with its five most likely verbs. To rebuild the prior or measure a change on train-split videos only, download the [annotation CSVs](https://github.com/epic-kitchens/epic-kitchens-100-annotations) into `data/epic_annotations/` and run:
+
+```sh
+python scripts/build_action_prior.py                       # refuses if a manifest video is in the input
+python scripts/eval_epic_train.py --outputs runs/<name>    # Action mAP + coverage; refuses non-train videos
+```
+
+See [docs/TRACK04_SUBMISSION_READINESS.md](docs/TRACK04_SUBMISSION_READINESS.md) for the before/after numbers.
 
 ### Validate
 
