@@ -38,6 +38,10 @@ EPIC_100 = "https://data.bris.ac.uk/datasets/2g1n6qdydwa9u22shpxqzp0t8m"
 EPIC_MD5 = "https://raw.githubusercontent.com/epic-kitchens/epic-kitchens-download-scripts/master/data/md5.csv"
 FPVSUM_LIST = "https://raw.githubusercontent.com/azuxmioy/fpvsum/master/crawler/FPVSum_videolist.csv"
 CHUNK = 8 << 20
+# manifest.csv lists Surfing_BKwkLQr9aiCQ, which is not in FPVSum_videolist.csv and not a YouTube ID.
+# FPVSum's Surfing_BKwkLQr9ai8 (labelled split) is 84 s on YouTube vs 84.03 s in the manifest, so it
+# is the same video with a typo in the manifest. It is saved under the manifest name.
+MANIFEST_ALIASES = {"Surfing_BKwkLQr9aiCQ": "Surfing_BKwkLQr9ai8"}
 PIECE = 32 << 20  # bytes per ranged request
 CONNECTIONS = 8
 
@@ -55,6 +59,13 @@ def epic_sources(ids: list[str]) -> dict[str, tuple[str, str]]:
         if "videos/" in path and name.endswith(".MP4") and name[:-4] in ids:
             found[name[:-4]] = (f"{EPIC_55 if version == '55' else EPIC_100}/{path}", md5)
     return found
+
+
+def fpvsum_youtube_ids() -> dict[str, str]:
+    """FPVSum video name -> YouTube ID from the official list, plus manifest aliases."""
+    ids = {row["video_name"]: row["youtube_id"] for row in csv.DictReader(io.StringIO(fetch_text(FPVSUM_LIST)))}
+    ids.update({name: ids[alias] for name, alias in MANIFEST_ALIASES.items() if alias in ids})
+    return ids
 
 
 def md5sum(path: Path) -> str:
@@ -212,8 +223,7 @@ def main() -> int:
     sources = epic_sources(epic) if epic else {}
     youtube = {}
     if fpv:
-        rows = csv.DictReader(io.StringIO(fetch_text(FPVSUM_LIST)))
-        youtube = {row["video_name"]: row["youtube_id"] for row in rows}
+        youtube = fpvsum_youtube_ids()
     missing_source = [v for v in epic if v not in sources] + [v for v in fpv if v not in youtube]
     if args.list:
         for video_id in epic:

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import io
 import os
 import queue
 import shutil
@@ -65,8 +64,7 @@ class Fetcher(threading.Thread):
         fpv = [v for v in video_ids if datasets[v] == "fpvsum"]
         self.youtube = {}
         if fpv:
-            rows = csv.DictReader(io.StringIO(dl.fetch_text(dl.FPVSUM_LIST)))
-            self.youtube = {row["video_name"]: row["youtube_id"] for row in rows}
+            self.youtube = dl.fpvsum_youtube_ids()
         self.ytdlp = dl.youtube_downloader() if fpv else None
 
     def release(self, nbytes: int) -> None:
