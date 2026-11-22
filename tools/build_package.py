@@ -24,7 +24,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from validate import check_directory, failures, load_classes, load_manifest
 
 REQUIRED_WEIGHTS = ("hand_landmarker.task", "owlv2/config.json", "siglip/config.json")
-IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store", ".gitkeep")
+IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store", ".gitkeep", ".cache", "*.lock")
 
 
 def check_outputs(outputs: Path, team_id: str) -> None:

@@ -28,7 +28,7 @@ python3.12 -m venv .venv
 
 `requirements.txt` pins `torch==2.11.0` and `torchvision==0.26.0`. For CPU-only or a specific CUDA build, install that wheel first, e.g. `pip install --index-url https://download.pytorch.org/whl/cpu torch==2.11.0+cpu torchvision==0.26.0+cpu`. Pip accepts it as meeting the pins.
 
-Inference loads only the local files in `weights/` (`hand_landmarker.task`, `owlv2/`, `siglip/`) with Hugging Face offline mode on. It needs no network access, cloud API or account.
+In a fresh clone, fetch the pinned model files with `python tools/download_weights.py`. Inference loads only the local files in `weights/` (`hand_landmarker.task`, `owlv2/`, `siglip/`) with Hugging Face offline mode on. It needs no network access, cloud API or account.
 
 ## Run
 
@@ -62,6 +62,7 @@ No network is trained or fine-tuned. The pipeline combines three public pretrain
 - Times are in seconds, rounded to 2 decimals. Every highlight lasts at least 4.0 s even after float rounding. Highlights are in time order, and touching segments are merged.
 - Total highlight time stays within 15% of `duration_sec`, and `duration_sec` is within ±0.5 s of `manifest.csv`.
 - Every label, verb and noun comes from `supported_classes.json`. Anything outside it maps to `other`.
+- FPVSum videos get `"actions": []`, which the student kit allows. Actions are scored only on EPIC-KITCHENS, and the verb/noun vocabulary is kitchen-specific.
 - **Videos shorter than 26.67 s** (`P03_26`, `P26_30` and `P28_23` in the manifest): their 15% budget is under 4.0 s, so no highlight can satisfy both rules. The Student Package treats the 4.0 s minimum as a hard check and the budget as a warning with a soft scoring penalty. These videos therefore get a single 4.0 s highlight centred on their best-scoring moment.
 
 ## Data used

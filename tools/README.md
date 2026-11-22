@@ -6,17 +6,43 @@ These scripts take the repository from "no videos" to `TEAM_ID.zip`. Run every c
 
 | Step | Command | Notes |
 |---|---|---|
-| 1. Download the 187 videos | `python tools/download_videos.py --dest /data/track04` | EPIC: 138 videos, about 180 GB, from the official `data.bris.ac.uk` endpoint. Downloads are MD5-checked and resume after interruptions. FPVSum: 49 videos, about 2.5 GB, from YouTube via `yt-dlp`. These use the official `FPVSum_videolist.csv`, because names like `BikePolo_5yf797Lh4Oc_1` map to a different YouTube ID. Durations are checked against the manifest. Use a machine or drive with about 200 GB free. `--dataset fpvsum`, `--ids A,B` and `--list` are also available. |
-| 2. Generate outputs | `HANDSCRIBE_TEAM_ID=<ID> python tools/generate_outputs.py --videos /data/track04` | Finds `<video_id>.mp4` anywhere under the folder, in any letter case. Loads the models once and skips outputs that already pass validation, so you can re-run it until it reports 0 failed and 0 missing. |
+| 0. Model files | `python tools/download_weights.py` | MediaPipe hand model (SHA-256 checked) plus OWLv2 and SigLIP at pinned revisions, so every machine runs identical weights. About 1.3 GB. |
+| 1+2. Download and generate | `HANDSCRIBE_TEAM_ID=404NotFound python tools/generate_outputs.py --fetch /tmp/track04-videos` | Downloads each missing manifest video, writes `outputs/<video_id>.json`, then deletes the video. The next video downloads while the current one is processed. A few GB of free disk is enough; videos too big for the free space are listed at the end. Add `--dataset epic` or `--dataset fpvsum` to split the work across machines. Re-run it until it reports 0 failed: finished outputs are skipped and downloads resume. |
+| (alt.) Download first | `python tools/download_videos.py --dest /data/track04` then `generate_outputs.py --videos /data/track04` | Needs about 190 GB. EPIC files come from `data.bris.ac.uk` over 8 parallel connections (~0.9 MB/s each, ~5 MB/s total measured), MD5-checked. FPVSum comes from YouTube via `yt-dlp`, using the official `FPVSum_videolist.csv`. |
 | 3. Validate | `python tools/validate.py --dir outputs/ --strict -v` | Without `--strict`, it follows the student-kit README: budget overruns and unknown classes only warn. `--strict` fails them too. |
-| 4. Package | `python tools/build_package.py --team-id <ID>` | Validates strictly, checks `weights/`, and writes `dist/<ID>/` and `dist/<ID>.zip`. The packaged `run.sh` has `DEFAULT_TEAM_ID` filled in. |
+| 4. Team ID | `python tools/set_team_id.py <ID>` | Outputs are generated as `404NotFound` until the organiser ID is confirmed. This rewrites `team_id` in every output and the `DEFAULT_TEAM_ID` line in `run.sh`, with no re-processing. |
+| 5. Package | `python tools/build_package.py --team-id <ID>` | Validates strictly, checks `weights/`, and writes `dist/<ID>/` and `dist/<ID>.zip`. |
 
-Before submitting, also put the confirmed ID into the `DEFAULT_TEAM_ID=""` line of the root `run.sh`.
+### Speed
+
+OWLv2 object detection runs on every keyframe (3 per second of video) and is about 95% of the cost.
+
+| Machine | Measured or estimated speed | All 15.6 h of video |
+|---|---|---|
+| Apple M4 (CPU; its GPU was not faster) | ~5.5 s per second of video (measured) | ~3.5 days |
+| NVIDIA GPU with `HANDSCRIBE_DEVICE=cuda` (OWLv2 and SigLIP in fp16) | not measured; expected several times faster | well under a day |
+
+### Running the EPIC share on the RTX 3050 laptop
+
+From the repository root, on Windows use PowerShell, or WSL with the same commands:
+
+```bash
+git pull
+python3.12 -m venv .venv          # Windows: py -3.12 -m venv .venv
+.venv/bin/python -m pip install torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cu128
+.venv/bin/python -m pip install -r tools/requirements.txt
+.venv/bin/python tools/download_weights.py
+HANDSCRIBE_DEVICE=cuda HANDSCRIBE_TEAM_ID=404NotFound \
+  .venv/bin/python tools/generate_outputs.py --dataset epic --fetch <folder with ~10 GB free>
+git add outputs/*.json && git commit -m "Add EPIC outputs" && git push
+```
+
+On Windows, `.venv/bin/python` becomes `.venv\Scripts\python`. Set the variables with `$env:HANDSCRIBE_DEVICE="cuda"` and `$env:HANDSCRIBE_TEAM_ID="404NotFound"`. If PyTorch can't see the GPU, the run stops with "CUDA was requested…". If that happens, install the PyTorch wheel matching the laptop's CUDA driver from pytorch.org.
 
 ## Checks
 
 ```bash
-python -m pytest -q tools/tests          # 47 tests, no model weights needed
+python -m pytest -q tools/tests          # 48 tests, no model weights needed
 python -m ruff check tools && python -m ruff check --line-length 110 code/handscribe_xr
 ```
 
@@ -54,6 +80,6 @@ Absolute scores are low, as expected for a zero-shot system without a trained ac
 
 ## Still to do
 
-1. Confirm the organiser-assigned team ID, then fill `DEFAULT_TEAM_ID` in `run.sh`.
-2. Steps 1–4 above, on a machine with about 200 GB free.
+1. Generate the outputs: FPVSum on the Mac, EPIC on the RTX 3050 laptop (see above).
+2. Confirm the organiser-assigned team ID, then run `python tools/set_team_id.py <ID>`.
 3. Commit `outputs/*.json` if the repository itself is submitted. Upload `dist/<ID>.zip` if an archive is required.

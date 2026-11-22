@@ -123,6 +123,8 @@ def main() -> int:
     parser.add_argument("--outputs", type=Path, default=ROOT / "outputs")
     parser.add_argument("--team-id", default=os.environ.get("HANDSCRIBE_TEAM_ID", ""))
     parser.add_argument("--force", action="store_true", help="Regenerate outputs that already validate")
+    parser.add_argument("--dataset", choices=("all", "epic", "fpvsum"), default="all",
+                        help="Only process one dataset (e.g. split the work across two machines)")
     args = parser.parse_args()
     if not args.team_id.strip():
         parser.error("set HANDSCRIBE_TEAM_ID or pass --team-id")
@@ -140,12 +142,13 @@ def main() -> int:
         return output.is_file() and not failures(check_file(output, manifest, classes)[1], True)
 
     local = find_videos(args.videos, set(manifest)) if args.videos else {}
-    todo = sorted((v for v in manifest if args.force or not valid(v)),
+    wanted = {"all": set(datasets.values()), "epic": {"epic_kitchens_100"}, "fpvsum": {"fpvsum"}}[args.dataset]
+    todo = sorted((v for v in manifest if datasets[v] in wanted and (args.force or not valid(v))),
                   key=lambda v: (datasets[v] != "fpvsum", manifest[v]))
-    skipped = len(manifest) - len(todo)
+    skipped = sum(datasets[v] in wanted for v in manifest) - len(todo)
     to_fetch = [v for v in todo if v not in local] if args.fetch else []
     missing = sorted(v for v in todo if v not in local and v not in to_fetch)
-    print(f"{len(manifest)} manifest videos: {skipped} already valid, {len(todo)} to do "
+    print(f"{skipped + len(todo)} {args.dataset} manifest videos: {skipped} already valid, {len(todo)} to do "
           f"({len(todo) - len(to_fetch) - len(missing)} local, {len(to_fetch)} to fetch, {len(missing)} not found)")
 
     fetcher = Fetcher(to_fetch, datasets, args.fetch, args.connections) if to_fetch else None
