@@ -60,10 +60,15 @@ def check_outputs(outputs: Path, team_id: str) -> None:
             if not isinstance(seg,list) or len(seg)!=2 or any(isinstance(x,bool) or not isinstance(x,(int,float)) or not math.isfinite(x) for x in seg) or not 0 <= seg[0] < seg[1] <= duration+0.5:
                 raise ValueError(f"{path.name}: invalid highlight segment.")
             start,end=seg
-            if start < previous: raise ValueError(f"{path.name}: highlights overlap or are unsorted.")
-            previous=end; total+=end-start; longest=max(longest,end-start)
-        if longest < 4.0: raise ValueError(f"{path.name}: no highlight is at least 4.0 seconds.")
-        if total > duration*0.15+1e-9: raise ValueError(f"{path.name}: highlights exceed 15% budget.")
+            if start < previous:
+                raise ValueError(f"{path.name}: highlights overlap or are unsorted.")
+            previous = end
+            total += end - start
+            longest = max(longest, end - start)
+        if longest < 4.0:
+            raise ValueError(f"{path.name}: no highlight is at least 4.0 seconds.")
+        if total > duration * 0.15 + 1e-9:
+            raise ValueError(f"{path.name}: highlights exceed 15% budget.")
 
 def build(team_id: str, outputs: Path, destination: Path) -> Path:
     if not team_id.strip() or "/" in team_id or "\\" in team_id:
@@ -71,15 +76,18 @@ def build(team_id: str, outputs: Path, destination: Path) -> Path:
     check_outputs(outputs,team_id)
     required=[ROOT/"weights"/"hand_landmarker.task",ROOT/"weights"/"owlv2"/"config.json",ROOT/"weights"/"siglip"/"config.json"]
     missing=[str(p.relative_to(ROOT)) for p in required if not p.is_file()]
-    if missing: raise ValueError("Required model assets missing: "+", ".join(missing))
+    if missing:
+        raise ValueError("Required model assets missing: " + ", ".join(missing))
     package=destination/team_id
-    if package.exists(): shutil.rmtree(package)
+    if package.exists():
+        shutil.rmtree(package)
     (package/"code").mkdir(parents=True)
     shutil.copytree(ROOT/"handscribe_xr",package/"code"/"handscribe_xr",ignore=shutil.ignore_patterns("__pycache__","*.pyc"))
     shutil.copytree(ROOT/"BiosHackathon"/"src"/"egovision",package/"code"/"egovision",ignore=shutil.ignore_patterns("__pycache__","*.pyc"))
     shutil.copytree(ROOT/"weights",package/"weights",ignore=shutil.ignore_patterns("__pycache__","*.pyc"))
     shutil.copytree(outputs,package/"outputs")
-    for name in ("manifest.csv","supported_classes.json"): shutil.copy2(ROOT/name,package/name)
+    for name in ("manifest.csv", "supported_classes.json"):
+        shutil.copy2(ROOT / name, package / name)
     base=(ROOT/"requirements.txt").read_text(encoding="utf-8").rstrip()
     semantic=(ROOT/"requirements-semantic.txt").read_text(encoding="utf-8").splitlines()
     semantic=[line for line in semantic if line.strip() and not line.lstrip().startswith("#")]
@@ -112,7 +120,8 @@ def build(team_id: str, outputs: Path, destination: Path) -> Path:
     if archive.exists(): archive.unlink()
     with zipfile.ZipFile(archive,"w",zipfile.ZIP_DEFLATED) as bundle:
         for path in package.rglob("*"):
-            if path.is_file(): bundle.write(path,path.relative_to(destination))
+            if path.is_file():
+                bundle.write(path, path.relative_to(destination))
     return archive
 
 def main() -> int:
