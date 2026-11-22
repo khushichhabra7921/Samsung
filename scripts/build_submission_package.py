@@ -103,7 +103,7 @@ def build(team_id: str, outputs: Path, destination: Path) -> Path:
         "python=python3\n"
         'if [ -n "$(printenv XR_PYTHON 2>/dev/null || true)" ]; then python="$(printenv XR_PYTHON)"; fi\n'
         'if [ -z "$(printenv XR_PYTHON 2>/dev/null || true)" ] && [ -x "$root/.venv/bin/python" ]; then python="$root/.venv/bin/python"; fi\n'
-        'export PYTHONPATH="$root/code:$PYTHONPATH"\n'
+        'export PYTHONPATH="$root/code"\n'
         'exec "$python" -m handscribe_xr.track04 "$@"\n',encoding="utf-8")
     os.chmod(package/"run.sh", 0o755)
     (package/"README.md").write_text(
