@@ -92,8 +92,8 @@ def build(team_id: str, outputs: Path, destination: Path) -> Path:
         "#!/usr/bin/env bash\nset -euo pipefail\n"
         'root="$(cd -- "$(dirname -- "$0")" && pwd)"\n'
         "python=python3\n"
-        'if [ -n "$XR_PYTHON" ]; then python="$XR_PYTHON"; fi\n'
-        'if [ -z "$XR_PYTHON" ] && [ -x "$root/.venv/bin/python" ]; then python="$root/.venv/bin/python"; fi\n'
+        'if [ -n "$(printenv XR_PYTHON 2>/dev/null || true)" ]; then python="$(printenv XR_PYTHON)"; fi\n'
+        'if [ -z "$(printenv XR_PYTHON 2>/dev/null || true)" ] && [ -x "$root/.venv/bin/python" ]; then python="$root/.venv/bin/python"; fi\n'
         'export PYTHONPATH="$root/code:$PYTHONPATH"\n'
         'exec "$python" -m handscribe_xr.track04 "$@"\n',encoding="utf-8")
     os.chmod(package/"run.sh", 0o755)
