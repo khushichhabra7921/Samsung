@@ -1,6 +1,13 @@
 """Build the TEAM_ID archive after all 187 official outputs and weights are ready."""
 from __future__ import annotations
-import argparse, csv, json, math, os, shutil, sys, zipfile
+import argparse
+import csv
+import json
+import math
+import os
+import shutil
+import sys
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
