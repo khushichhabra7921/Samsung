@@ -12,7 +12,6 @@ import math
 import os
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 from egovision.ingest import VideoError
 
@@ -20,8 +19,10 @@ from .contracts import ROOT, write_json
 from .pipeline import Options, analyze
 from .recognition import ModelSetupError
 
-MANIFEST = ROOT / "manifest.csv"
-CLASSES = ROOT / "supported_classes.json"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PACKAGE_ROOT = PROJECT_ROOT.parent if PROJECT_ROOT.name == "code" else PROJECT_ROOT
+MANIFEST = PACKAGE_ROOT / "manifest.csv"
+CLASSES = PACKAGE_ROOT / "supported_classes.json"
 MIN_HIGHLIGHT_SEC = 4.0
 BUDGET_FRACTION = 0.15
 
@@ -177,7 +178,7 @@ def run(video_path: Path, output_path: Path) -> None:
 
     options = Options(
         mode="semantic",
-        weights=ROOT / "weights",
+        weights=PACKAGE_ROOT / "weights",
         vocabulary=CLASSES,
         device=os.environ.get("HANDSCRIBE_DEVICE", "auto"),
         allow_short=False,
