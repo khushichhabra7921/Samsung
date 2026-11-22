@@ -76,12 +76,31 @@ Pass a normalized vocabulary with the Track 04 label strings as `{"verbs": [...]
 
 Model loading uses local files only. `--device auto` chooses CUDA when available. Use `--device cpu` to force CPU or `--device cuda` to require a GPU. Semantic mode reports a setup error if required assets are missing.
 
-## Validation and submission
+## Track 04 submission interface
 
-Run `.venv/bin/python -m pip install -r requirements-dev.txt`, then `.venv/bin/python -m pytest`. The tests exercise evidence fusion, gap filling, boundary refinement, coverage, strict budget handling, deterministic processing, and a real upload-to-export flow.
+The official Student Package files `manifest.csv` and `supported_classes.json` are now included at the repository root. The root `run.sh` preserves the development CLI when flags or additional arguments are supplied, and uses the official six-field Track 04 exporter when called with exactly two arguments:
 
-The bundled kitchen clip produces a **3.499 s source interval** from **23.333 s** of video. The rendered MP4 is **3.467 s** after frame quantization. The report and track are generated with the project's CLI. Action accuracy and dataset-wide performance require evaluation with the production checkpoints and labeled clips.
+```sh
+export HANDSCRIBE_TEAM_ID=T07  # replace with the exact organiser-assigned ID if different
+./run.sh /path/to/VIDEO_ID.mp4 outputs/VIDEO_ID.json
+```
 
-The JSON is a versioned development report, `handscribe.xr/v1`. To submit, obtain the official student-kit schema, `supported_classes.json`, manifest, and validator. Map the normalized vocabulary and report to that contract, then run the organizer's validation and benchmark. Semantic confidence weights and thresholds still require calibration with labeled data.
+The input filename stem and output filename stem must match one of the 187 IDs in `manifest.csv`. The exporter runs semantic inference, writes `team_id`, `video_id`, `duration_sec`, `label`, `actions`, and `highlights`, and checks manifest duration, class membership, highlight ordering, the 4-second minimum, and the 15% budget before writing. EPIC-KITCHENS videos use the Student Package's prescribed `cooking` label. FPVSum labels use an added SigLIP zero-shot video-category head over the official label list; its accuracy still requires validation on labelled data.
 
-The original project is available under `BiosHackathon/`. [BIOS HandScribe workflow](BiosHackathon/README.md)
+Install base and semantic dependencies as described above. Semantic mode requires local assets at `weights/hand_landmarker.task`, `weights/owlv2/`, and `weights/siglip/`. The model files are not committed to Git because of their size; they must be present locally before inference. Set `HANDSCRIBE_DEVICE=cpu` or `cuda` to select a device.
+
+### Build the final TEAM_ID archive
+
+After downloading the 187 source videos, generating every output JSON, and placing the local model assets under `weights/`, run:
+
+```sh
+python scripts/build_submission_package.py --team-id T07
+```
+
+Replace `T07` with the confirmed organiser-assigned ID. The packager preflights all 187 JSON files against the manifest and class vocabulary, then creates the required `TEAM_ID/` directory and `TEAM_ID.zip` with `run.sh`, `code/`, `weights/`, `requirements.txt`, `outputs/`, and `README.md`. It refuses to package missing outputs or required model files.
+
+**Known organiser-spec conflict:** manifest entries `P03_26` (11.13s), `P26_30` (15.28s), and `P28_23` (25.16s) have a 15% highlight budget shorter than 4.0s. The Student Package simultaneously requires total highlights <=15% and at least one highlight >=4.0s. The exporter and packager stop for these entries rather than emitting knowingly non-compliant JSON. Obtain the organiser's resolution before finalising all 187 outputs.
+
+The uploaded Student Package ZIP did not include `validate.py`, although its TEAM_README lists it. Once the supervisor supplies the official script, run `python validate.py --dir outputs/` before packaging. The local packager is only a preflight check and is not represented as the organiser's validator.
+
+Run the regression suite with `.venv/bin/python -m pip install -r requirements-dev.txt` followed by `.venv/bin/python -m pytest`. The original project is available under `BiosHackathon/`. [BIOS HandScribe workflow](BiosHackathon/README.md)
