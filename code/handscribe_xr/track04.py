@@ -206,7 +206,9 @@ def build_submission_payload(
 
     actions = []
     samples = getattr(analysis, "samples", ())
-    for action in report.actions:
+    # Actions are scored on EPIC-KITCHENS only, and the verb/noun vocabulary is kitchen-specific, so
+    # FPVSum sports videos get the empty list the student kit allows instead of meaningless pairs.
+    for action in report.actions if dataset != "fpvsum" else ():
         noun = action.label.noun if action.label.noun in nouns else "other"
         start, end = _seconds(action.start_ms), _seconds(action.end_ms)
         score = float(action.confidence)

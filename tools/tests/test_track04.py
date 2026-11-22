@@ -193,3 +193,9 @@ def test_action_cap_keeps_highest_scores(monkeypatch):
         for i, c in enumerate((0.9, 0.1, 0.8))
     ]
     assert [a["score"] for a in payload_for(analysis)["actions"]] == [0.9, 0.8]
+
+
+def test_fpvsum_files_have_no_kitchen_actions():
+    payload = payload_for(fake_analysis(categories=(("surfing", 0.7),)), dataset="fpvsum")
+    assert payload["actions"] == []
+    assert payload["highlights"] and payload["label"]["name"] == "surfing"
