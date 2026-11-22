@@ -23,6 +23,28 @@ class ModelSetupError(RuntimeError):
     """Local model assets or dependencies are unavailable."""
 
 
+# Plain-language phrases for the official video labels. Compound class keys such as
+# "rockclimbing" or "bikepolo" otherwise reach the SigLIP text encoder as unfamiliar words.
+CATEGORY_PHRASES = {
+    "bike": "riding a bicycle",
+    "bikepolo": "playing bike polo",
+    "boxing": "boxing",
+    "cooking": "cooking in a kitchen",
+    "horse": "riding a horse",
+    "jumping": "jumping",
+    "longboarding": "riding a longboard",
+    "motor": "riding a motorcycle",
+    "parkour": "doing parkour",
+    "plane": "flying in a plane",
+    "rockclimbing": "rock climbing",
+    "scuba": "scuba diving underwater",
+    "skate": "skating",
+    "ski": "skiing",
+    "surfing": "surfing",
+    "other": "an everyday activity",
+}
+
+
 @dataclass(frozen=True)
 class Vocabulary:
     verbs: tuple[str, ...]
@@ -85,7 +107,7 @@ class SemanticModels:
         prompts += [f"A first-person view of a person interacting with a {noun.replace(':', ' ')}." for noun in vocab.nouns]
         self.text = np.concatenate([self.embedder.texts(prompts[i:i + 32]) for i in range(0, len(prompts), 32)])
         category_prompts = [
-            f"A first-person video showing {label.replace('_', ' ').replace('-', ' ')}."
+            f"A first-person video of {CATEGORY_PHRASES.get(label, label.replace('_', ' ').replace('-', ' '))}."
             for label in vocab.labels
         ]
         self.category_text = (
