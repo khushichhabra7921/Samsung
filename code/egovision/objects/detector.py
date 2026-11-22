@@ -45,20 +45,42 @@ class OpenVocabDetector:
 
     def _owl(self, batch: list[np.ndarray], vocab: list[VocabItem]) -> list[list[tuple[int, float, list[float]]]]:
         import torch
+        from transformers.models.owlv2.modeling_owlv2 import Owlv2ObjectDetectionOutput
 
-        prompts = [[f"a photo of a {v.prompt}" for v in vocab]] * len(batch)
-        inputs = self.processor(
-            text=prompts, images=batch, return_tensors="pt", padding="max_length", truncation=True,
-            max_length=self.model.config.text_config.max_position_embeddings,
-        ).to(self.device)
-        inputs["pixel_values"] = inputs["pixel_values"].to(self.dtype)
-        outputs = self.model(**inputs)
+        # The text queries never change within a run, so they are encoded once and reused. This is the
+        # same computation as Owlv2ForObjectDetection.forward with the text tower hoisted out of the
+        # per-frame loop (about a quarter of OWLv2's per-frame cost with 300 queries).
+        query_embeds, query_mask = self._queries(vocab)
+        pixel_values = self.processor(images=batch, return_tensors="pt")["pixel_values"].to(self.device, self.dtype)
+        feature_map, _ = self.model.image_embedder(pixel_values=pixel_values)
+        size, height, width, hidden = feature_map.shape
+        image_feats = torch.reshape(feature_map, (size, height * width, hidden))
+        logits, _ = self.model.class_predictor(
+            image_feats, query_embeds.expand(size, -1, -1), query_mask.expand(size, -1))
+        boxes = self.model.box_predictor(image_feats, feature_map)
+        outputs = Owlv2ObjectDetectionOutput(logits=logits, pred_boxes=boxes)
         # OWLv2 pads images to a square at the bottom/right: boxes are relative to that square.
         sizes = torch.tensor([[max(im.shape[:2])] * 2 for im in batch], device=self.device)
         res = self.processor.post_process_grounded_object_detection(
             outputs=outputs, threshold=self._floor(vocab), target_sizes=sizes)
         return [[(int(lab), float(s), b.tolist()) for s, lab, b in zip(r["scores"], r["labels"], r["boxes"], strict=True)]
                 for r in res]
+
+    def _queries(self, vocab: list[VocabItem]):
+        import torch
+
+        prompts = tuple(f"a photo of a {v.prompt}" for v in vocab)
+        if getattr(self, "_query_cache", (None,))[0] != prompts:
+            text = self.processor(
+                text=[list(prompts)], return_tensors="pt", padding="max_length", truncation=True,
+                max_length=self.model.config.text_config.max_position_embeddings,
+            ).to(self.device)
+            pooled = self.model.owlv2.text_model(
+                input_ids=text["input_ids"], attention_mask=text["attention_mask"]).pooler_output
+            embeds = self.model.owlv2.text_projection(pooled)
+            embeds = embeds / torch.linalg.norm(embeds, ord=2, dim=-1, keepdim=True)  # as Owlv2Model.forward
+            self._query_cache = (prompts, embeds.unsqueeze(0), (text["input_ids"][..., 0] > 0).unsqueeze(0))
+        return self._query_cache[1], self._query_cache[2]
 
     def _gdino(self, batch: list[np.ndarray], vocab: list[VocabItem]) -> list[list[tuple[int, float, list[float]]]]:
         text = ". ".join(v.prompt for v in vocab) + "."
