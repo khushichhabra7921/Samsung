@@ -1,0 +1,5 @@
+# Team tooling only (not needed by run.sh): tests, lint and FPVSum downloads.
+-r ../requirements.txt
+pytest==9.2.0
+ruff==0.17.3
+yt-dlp==2026.10.26
