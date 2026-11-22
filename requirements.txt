@@ -1,9 +1,0 @@
-av==19.0.2
-opencv-contrib-python==5.1.0.95
-numpy==2.5.4
-scipy==1.18.1
-mediapipe==1.2.0
-pydantic==2.14.2
-PyYAML==6.0.3
-fastapi==0.162.0
-uvicorn==0.54.0

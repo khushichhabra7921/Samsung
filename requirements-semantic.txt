@@ -1,4 +1,0 @@
-# Install the appropriate PyTorch and torchvision wheels first (see README).
-transformers==5.22.1
-sentencepiece==0.2.2
-protobuf==7.36.2
