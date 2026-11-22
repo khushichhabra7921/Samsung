@@ -15,7 +15,7 @@ from pathlib import Path
 
 from egovision.ingest import VideoError
 
-from .contracts import ROOT, write_json
+from .contracts import write_json
 from .pipeline import Options, analyze
 from .recognition import ModelSetupError
 
