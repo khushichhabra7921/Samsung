@@ -2,8 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from handscribe_xr.track04 import build_submission_payload, load_manifest
 from handscribe_xr.contracts import ROOT
+from handscribe_xr.track04 import build_submission_payload, load_manifest
 
 
 def fake_analysis(*, duration=100.0, categories=()):
