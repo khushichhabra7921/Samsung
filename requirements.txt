@@ -1,3 +1,7 @@
+# Exact pins. For CPU-only or a specific CUDA build, install that PyTorch wheel first;
+# pip accepts e.g. torch 2.11.0+cpu as satisfying the pins below.
+torch==2.11.0
+torchvision==0.26.0
 av==19.0.2
 opencv-contrib-python==5.1.0.95
 numpy==2.5.4

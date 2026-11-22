@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+data/
+dist/
+# Model files are large (OWLv2/SigLIP > 100 MB); keep them local and in the TEAM_ID package.
+weights/*
+!weights/.gitkeep
