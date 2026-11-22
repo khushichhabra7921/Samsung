@@ -78,29 +78,55 @@ Model loading uses local files only. `--device auto` chooses CUDA when available
 
 ## Track 04 submission interface
 
-The official Student Package files `manifest.csv` and `supported_classes.json` are now included at the repository root. The root `run.sh` preserves the development CLI when flags or additional arguments are supplied, and uses the official six-field Track 04 exporter when called with exactly two arguments:
+The official Student Package files `manifest.csv` and `supported_classes.json` are at the repository root. When `run.sh` gets exactly two arguments it runs the six-field Track 04 exporter. With flags or more arguments it keeps the development CLI.
 
 ```sh
 export HANDSCRIBE_TEAM_ID=T07  # replace with the exact organiser-assigned ID if different
 ./run.sh /path/to/VIDEO_ID.mp4 outputs/VIDEO_ID.json
 ```
 
-The input filename stem and output filename stem must match one of the 187 IDs in `manifest.csv`. The exporter runs semantic inference, writes `team_id`, `video_id`, `duration_sec`, `label`, `actions`, and `highlights`, and checks manifest duration, class membership, highlight ordering, the 4-second minimum, and the 15% budget before writing. EPIC-KITCHENS videos use the Student Package's prescribed `cooking` label. FPVSum labels use an added SigLIP zero-shot video-category head over the official label list; its accuracy still requires validation on labelled data.
+The video ID is the input file name without its extension, for example `P01_11.MP4` gives `P01_11`. If that isn't in `manifest.csv`, the output file name is tried. This lets an organiser re-run like `./run.sh sample.mp4 out.json` still work. A video outside the manifest is processed with its decoded duration and a label predicted from all 16 classes. The exporter runs semantic inference and writes `team_id`, `video_id`, `duration_sec`, `label`, `actions`, and `highlights`. EPIC-KITCHENS videos use the Student Package's prescribed `cooking` label. FPVSum videos get the top SigLIP zero-shot score among the 14 FPVSum categories. Its accuracy still needs checking on labelled data.
 
-Install base and semantic dependencies as described above. Semantic mode requires local assets at `weights/hand_landmarker.task`, `weights/owlv2/`, and `weights/siglip/`. The model files are not committed to Git because of their size; they must be present locally before inference. Set `HANDSCRIBE_DEVICE=cpu` or `cuda` to select a device.
+Before writing, the exporter checks or enforces:
+- duration within ±0.5 s of the manifest, and every class from the official vocabulary;
+- highlights in time order with touching segments merged;
+- every highlight at least 4.0 s *after* rounding to two decimals (0.02 → 4.02 is 3.9999999999999996 s as a float);
+- a total within the 15% budget.
+
+Install base and semantic dependencies as described above. Semantic mode needs local assets at `weights/hand_landmarker.task`, `weights/owlv2/`, and `weights/siglip/`. They aren't committed to Git because of their size. Set `HANDSCRIBE_DEVICE=cpu` or `cuda` to choose a device.
+
+**Videos shorter than 26.67 s** (`P03_26`, `P26_30`, `P28_23` in the manifest) cannot meet both the 4.0 s minimum and the 15% budget. The Student Package treats "at least one highlight ≥ 4.0 s" as a hard check: a file that fails it is invalid and scores 0. Exceeding the budget only produces a warning and a soft penalty on coverage. These videos therefore get one 4.0 s highlight centred on their best-scoring moment.
+
+### Generate all 187 outputs
+
+Download the videos as described in `TEAM_README.md`, then run:
+
+```sh
+python scripts/generate_outputs.py --videos /path/to/downloads
+```
+
+The script finds `<video_id>.mp4` in any letter case anywhere under the folder, including the EPIC downloader's `P01/videos/P01_11.MP4` layout. It loads the models once and skips outputs that already pass validation, so an interrupted run can resume. At the end it lists failures, any manifest videos it could not find, and a strict validation result.
+
+### Validate
+
+The Student Package ZIP we received did not include `validate.py`. The root `validate.py` is our standard-library version of every check that `TEAM_README.md` §3–4 and the submission slides describe. It covers the six keys, types, finite ranges, segment bounds, order and overlap, and the 4.0 s minimum. It also checks manifest duration and coverage, a consistent `team_id`, and vocabulary membership.
+
+```sh
+python validate.py --dir outputs/            # README severities: budget overrun and unknown classes warn
+python validate.py --dir outputs/ --strict   # also fail avoidable budget overruns, unknown classes and keys
+python validate.py --file examples/P02_109.json -v
+```
+
+The organiser's sample `skiing_03.json` uses `skiing`, which is not in `supported_classes.json` (`ski`). Default mode warns about this, and `--strict` fails it. When the official script arrives, run it as well.
 
 ### Build the final TEAM_ID archive
 
-After downloading the 187 source videos, generating every output JSON, and placing the local model assets under `weights/`, run:
+After generating all 187 outputs and placing the model assets under `weights/`, run:
 
 ```sh
 python scripts/build_submission_package.py --team-id T07
 ```
 
-Replace `T07` with the confirmed organiser-assigned ID. The packager preflights all 187 JSON files against the manifest and class vocabulary, then creates the required `TEAM_ID/` directory and `TEAM_ID.zip` with `run.sh`, `code/`, `weights/`, `requirements.txt`, `outputs/`, and `README.md`. It refuses to package missing outputs or required model files.
-
-**Known organiser-spec conflict:** manifest entries `P03_26` (11.13s), `P26_30` (15.28s), and `P28_23` (25.16s) have a 15% highlight budget shorter than 4.0s. The Student Package simultaneously requires total highlights <=15% and at least one highlight >=4.0s. The exporter and packager stop for these entries rather than emitting knowingly non-compliant JSON. Obtain the organiser's resolution before finalising all 187 outputs.
-
-The uploaded Student Package ZIP did not include `validate.py`, although its TEAM_README lists it. Once the supervisor supplies the official script, run `python validate.py --dir outputs/` before packaging. The local packager is only a preflight check and is not represented as the organiser's validator.
+Replace `T07` with the confirmed organiser-assigned ID. The packager runs `validate.py --strict` over the outputs, then creates `TEAM_ID/` and `TEAM_ID.zip`. These contain `run.sh` (with the team ID as its default), `code/`, `weights/`, `requirements.txt` with exact pins including torch, `outputs/`, and `README.md`. The README is built from [docs/SUBMISSION_README.md](docs/SUBMISSION_README.md) and covers setup, model architecture, and data used. The packager refuses to build if any output is missing or invalid, or if a required model file is missing.
 
 Run the regression suite with `.venv/bin/python -m pip install -r requirements-dev.txt` followed by `.venv/bin/python -m pytest`. The original project is available under `BiosHackathon/`. [BIOS HandScribe workflow](BiosHackathon/README.md)
