@@ -27,6 +27,7 @@ class ModelSetupError(RuntimeError):
 class Vocabulary:
     verbs: tuple[str, ...]
     nouns: tuple[str, ...]
+    labels: tuple[str, ...] = ()
 
     @classmethod
     def load(cls, path: Path) -> Vocabulary:
@@ -47,7 +48,14 @@ class Vocabulary:
                 raise ModelSetupError(f"Vocabulary '{key}' requires unique labels and a class beyond 'other'.")
             return clean
 
-        return cls(labels("verbs", 98), labels("nouns", 301))
+        categories = data.get("labels", []) if isinstance(data, dict) else []
+        if (
+            not isinstance(categories, list) or len(categories) > 16
+            or any(not isinstance(value, str) or not value.strip() for value in categories)
+            or len(set(categories)) != len(categories)
+        ):
+            raise ModelSetupError("Vocabulary 'labels' must be a list of unique category strings.")
+        return cls(labels("verbs", 98), labels("nouns", 301), tuple(categories))
 
 
 @dataclass(slots=True)
@@ -56,6 +64,7 @@ class Predictions:
     verb_scores: np.ndarray
     noun_scores: np.ndarray
     boxes: list[ObjectDet]
+    category_scores: np.ndarray | None = None
 
 
 class SemanticModels:
@@ -75,6 +84,13 @@ class SemanticModels:
         prompts = [f"A first-person view of hands performing this action: {verb}." for verb in vocab.verbs]
         prompts += [f"A first-person view of a person interacting with a {noun.replace(':', ' ')}." for noun in vocab.nouns]
         self.text = np.concatenate([self.embedder.texts(prompts[i:i + 32]) for i in range(0, len(prompts), 32)])
+        category_prompts = [
+            f"A first-person video showing {label.replace('_', ' ').replace('-', ' ')}."
+            for label in vocab.labels
+        ]
+        self.category_text = (
+            self.embedder.texts(category_prompts) if category_prompts else None
+        )
 
     def predict(self, frames: list[np.ndarray], scale: float) -> list[Predictions]:
         boxes = self.detector.detect(frames, self.nouns, 1 / scale)
@@ -84,9 +100,18 @@ class SemanticModels:
         logits = np.clip(self.scale * (embeddings @ self.text.T) + self.bias, -40, 40)
         scores = np.nan_to_num(1 / (1 + np.exp(-logits)), nan=0)
         split = len(self.vocab.verbs)
+        category_scores = None
+        if self.category_text is not None:
+            category_logits = self.scale * (embeddings @ self.category_text.T) + self.bias
+            category_logits -= category_logits.max(axis=1, keepdims=True)
+            category_probs = np.exp(category_logits)
+            category_scores = category_probs / np.maximum(category_probs.sum(axis=1, keepdims=True), 1e-12)
         return [
-            Predictions(embedding, score[:split], score[split:], objects[:32])
-            for embedding, score, objects in zip(embeddings, scores, boxes, strict=True)
+            Predictions(
+                embedding, score[:split], score[split:], objects[:32],
+                category_scores[index] if category_scores is not None else None,
+            )
+            for index, (embedding, score, objects) in enumerate(zip(embeddings, scores, boxes, strict=True))
         ]
 
     def label(self, sample: Sample, prediction: Predictions, hands: list[Hand]) -> None:
