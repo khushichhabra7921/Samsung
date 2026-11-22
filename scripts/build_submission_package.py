@@ -1,5 +1,6 @@
 """Build the TEAM_ID archive after all 187 official outputs and weights are ready."""
 from __future__ import annotations
+
 import argparse
 import csv
 import json
