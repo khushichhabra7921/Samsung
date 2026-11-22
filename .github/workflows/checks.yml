@@ -24,6 +24,6 @@ jobs:
           python -m pip install -r requirements-dev.txt
       - name: Check Python and browser scripts
         run: |
-          python -m ruff check handscribe_xr tests scripts/build_submission_package.py
+          python -m ruff check handscribe_xr tests scripts validate.py
           node --check web/app.js
           python -m pytest
