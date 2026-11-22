@@ -6,7 +6,7 @@ from egovision.hands.postprocess import bridge_dropouts
 from egovision.schema import FrameHands, Hand, ObjectDet
 
 from handscribe_xr.contracts import Diagnostics, Highlight, Label, Report, budget_ms, write_json
-from handscribe_xr.recognition import Predictions, SemanticModels, Vocabulary
+from handscribe_xr.recognition import Predictions, SemanticModels, Vocabulary, load_verb_prior
 from handscribe_xr.selection import Candidate, Sample, Timeline, select
 
 
@@ -74,6 +74,8 @@ def test_recognizer_uses_labels_and_contact_with_real_landmark_geometry():
     recognizer = SemanticModels.__new__(SemanticModels)
     recognizer.vocab = Vocabulary(("cut", "rinse"), ("pepper", "plate"))
     recognizer.objects = ObjectsConfig(contact_margin=0)
+    recognizer.verb_prior = load_verb_prior(recognizer.vocab)
+    assert recognizer.verb_prior is None  # custom vocabularies keep the threshold path
     prediction = Predictions(
         np.array([1]), np.array([0.70, 0.2]), np.array([0.51, 0.59]),
         [ObjectDet(label="pepper", kind="portable", score=0.81, bbox=[0, 0, 10, 10])],

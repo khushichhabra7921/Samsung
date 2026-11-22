@@ -13,6 +13,7 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
 from egovision.ingest import VideoError
 
 from .contracts import write_json
@@ -25,6 +26,11 @@ MANIFEST = PACKAGE_ROOT / "manifest.csv"
 CLASSES = PACKAGE_ROOT / "supported_classes.json"
 MIN_HIGHLIGHT_SEC = 4.0
 BUDGET_FRACTION = 0.15
+MAX_ACTIONS = 2000
+# Verb hypotheses written per detected segment. Action mAP is ranked per verb-noun class, so a
+# lower-scored second guess can only add matches for that class; single-frame verbs are the
+# least certain part of each prediction.
+VERB_HYPOTHESES = 5
 
 
 def load_manifest(path: Path = MANIFEST) -> dict[str, dict[str, str]]:
@@ -116,6 +122,30 @@ def finalize_highlights(clips, duration_cs: int) -> list[list[float]]:
     return [[start / 100, end / 100] for start, end, _ in merged]
 
 
+def _verb_hypotheses(action, samples, verb_names: list[str]) -> list[tuple[str, float]]:
+    """The detected verb plus the next most likely verbs for the same segment and noun.
+
+    Each alternative is weighted by its mean posterior relative to the detected verb's, so it
+    always ranks below the primary prediction of that segment.
+    """
+    primary = [(action.label.verb, 1.0)]
+    posteriors = [
+        sample.verb_posterior for sample in samples
+        if action.start_ms <= sample.time_ms < action.end_ms and sample.label == action.label
+        and getattr(sample, "verb_posterior", None) is not None
+    ]
+    if VERB_HYPOTHESES <= 1 or not posteriors or len(posteriors[0]) != len(verb_names):
+        return primary
+    mean = np.mean(posteriors, axis=0)
+    top = mean[verb_names.index(action.label.verb)] if action.label.verb in verb_names else 0.0
+    if top <= 0:
+        return primary
+    ranked = [int(i) for i in np.argsort(-mean) if verb_names[int(i)] not in (action.label.verb, "other")]
+    return primary + [
+        (verb_names[i], min(1.0, float(mean[i] / top))) for i in ranked[:VERB_HYPOTHESES - 1] if mean[i] > 0
+    ]
+
+
 def _video_label(analysis, dataset: str | None, labels: set[str]) -> dict:
     if dataset == "epic_kitchens_100":
         return {"name": "cooking", "score": 1.0}
@@ -175,24 +205,24 @@ def build_submission_payload(
     video_label = _video_label(analysis, dataset, labels)
 
     actions = []
+    samples = getattr(analysis, "samples", ())
     for action in report.actions:
-        verb = action.label.verb if action.label.verb in verbs else "other"
         noun = action.label.noun if action.label.noun in nouns else "other"
         start, end = _seconds(action.start_ms), _seconds(action.end_ms)
-        if not (0 <= start < end <= duration + 0.5):
-            continue
         score = float(action.confidence)
-        if not math.isfinite(score):
+        if not (0 <= start < end <= duration + 0.5) or not math.isfinite(score):
             continue
-        actions.append({
-            "segment": [start, end],
-            "verb": verb,
-            "noun": noun,
-            "score": max(0.0, min(1.0, score)),
-        })
-    actions.sort(key=lambda item: (item["segment"][0], item["segment"][1]))
-    if len(actions) > 2000:
-        actions = actions[:2000]
+        score = max(0.0, min(1.0, score))
+        for verb, relative in _verb_hypotheses(action, samples, supported_classes["verbs"]):
+            actions.append({
+                "segment": [start, end],
+                "verb": verb if verb in verbs else "other",
+                "noun": noun,
+                "score": round(score * relative, 4),
+            })
+    if len(actions) > MAX_ACTIONS:
+        actions = sorted(actions, key=lambda item: -item["score"])[:MAX_ACTIONS]
+    actions.sort(key=lambda item: (item["segment"][0], item["segment"][1], -item["score"]))
 
     duration_cs = round(duration * 100)
     highlights = finalize_highlights(report.highlights, duration_cs)

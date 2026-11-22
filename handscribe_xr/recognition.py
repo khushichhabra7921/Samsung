@@ -23,6 +23,44 @@ class ModelSetupError(RuntimeError):
     """Local model assets or dependencies are unavailable."""
 
 
+PRIOR_PATH = Path(__file__).resolve().parent / "assets" / "epic100_train_prior.json"
+PRIOR_STRENGTH = 5.0  # Dirichlet pseudo-counts pulling rare nouns toward the overall verb frequency
+VERB_TEMPERATURE = 1.0
+MIN_NOUN_SCORE = 0.12
+
+
+def _logit(scores: np.ndarray) -> np.ndarray:
+    clipped = np.clip(scores.astype(np.float64), 1e-6, 1 - 1e-6)
+    return np.log(clipped / (1 - clipped))
+
+
+def load_verb_prior(vocab: Vocabulary, path: Path = PRIOR_PATH) -> np.ndarray | None:
+    """log P(verb | noun) as a (nouns x verbs) matrix in vocabulary order.
+
+    Built by scripts/build_action_prior.py from EPIC-KITCHENS-100 train-split counts. Returns
+    None for a vocabulary that does not contain the EPIC class keys. 'other' is never chosen
+    as a verb because it cannot match EPIC ground truth.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    verb_index = {key: i for i, key in enumerate(vocab.verbs)}
+    noun_index = {key: i for i, key in enumerate(vocab.nouns)}
+    if not set(data["verbs"]) <= verb_index.keys() or not set(data["nouns"]) <= noun_index.keys():
+        return None
+    counts = np.zeros((len(vocab.nouns), len(vocab.verbs)))
+    for verb, noun, count in data["pair_counts"]:
+        counts[noun_index[data["nouns"][noun]], verb_index[data["verbs"][verb]]] += count
+    known = np.zeros(len(vocab.verbs), dtype=bool)
+    known[[verb_index[verb] for verb in data["verbs"]]] = True
+    marginal = counts.sum(axis=0) + known
+    marginal /= marginal.sum()
+    prior = (counts + PRIOR_STRENGTH * marginal) / (counts.sum(axis=1, keepdims=True) + PRIOR_STRENGTH)
+    with np.errstate(divide="ignore"):
+        return np.where(known, np.log(prior), -np.inf)
+
+
 # Plain-language phrases for the official video labels. Compound class keys such as
 # "rockclimbing" or "bikepolo" otherwise reach the SigLIP text encoder as unfamiliar words.
 CATEGORY_PHRASES = {
@@ -113,6 +151,8 @@ class SemanticModels:
         self.category_text = (
             self.embedder.texts(category_prompts) if category_prompts else None
         )
+        self.verb_prior = load_verb_prior(vocab)
+        self.real_nouns = np.array([noun != "other" for noun in vocab.nouns])
 
     def predict(self, frames: list[np.ndarray], scale: float) -> list[Predictions]:
         boxes = self.detector.detect(frames, self.nouns, 1 / scale)
@@ -136,7 +176,20 @@ class SemanticModels:
             for index, (embedding, score, objects) in enumerate(zip(embeddings, scores, boxes, strict=True))
         ]
 
-    def label(self, sample: Sample, prediction: Predictions, hands: list[Hand]) -> None:
+    def verb_offsets(self, predictions: list[Predictions]) -> np.ndarray | None:
+        """Mean verb log-odds over one video's keyframes.
+
+        SigLIP rates scene-level verbs such as 'cook' highly on almost every kitchen frame
+        (0.1% of EPIC train actions are 'cook'); subtracting the per-video mean leaves what
+        changes from frame to frame.
+        """
+        if self.verb_prior is None or not predictions:
+            return None
+        return np.mean([_logit(prediction.verb_scores) for prediction in predictions], axis=0)
+
+    def label(
+        self, sample: Sample, prediction: Predictions, hands: list[Hand], verb_offset: np.ndarray | None = None,
+    ) -> None:
         depths = associate(hands, prediction.boxes, self.objects)
         contacts = {
             label: max(con.n_tips / 5 * (con.object_score or 0) ** 0.5
@@ -150,19 +203,35 @@ class SemanticModels:
             blend(((float(score), 0.60), (detections.get(noun), 0.25), (contacts.get(noun), 0.15)))
             for noun, score in zip(self.vocab.nouns, prediction.noun_scores, strict=True)
         ]
-        verb_index = int(np.argmax(prediction.verb_scores))
-        noun_index = int(np.argmax(noun_scores))
-        verb_score = float(prediction.verb_scores[verb_index])
-        noun_score = noun_scores[noun_index]
+        if self.verb_prior is not None:
+            noun_index = int(np.argmax(np.where(self.real_nouns, noun_scores, -np.inf)))
+            noun_score = noun_scores[noun_index]
+            if noun_score < MIN_NOUN_SCORE:
+                return
+            # Centred SigLIP log-odds act as a likelihood; the train-split prior P(verb | noun)
+            # supplies what single frames cannot (e.g. tap -> turn-on/turn-off/wash).
+            logits = _logit(prediction.verb_scores) - (0 if verb_offset is None else verb_offset)
+            posterior = logits / VERB_TEMPERATURE + self.verb_prior[noun_index]
+            posterior = np.exp(posterior - posterior.max())
+            posterior /= posterior.sum()
+            verb_index = int(np.argmax(posterior))
+            verb, noun = self.vocab.verbs[verb_index], self.vocab.nouns[noun_index]
+            verb_score = float(posterior[verb_index])
+            sample.verb_posterior = posterior
+        else:
+            verb_index = int(np.argmax(prediction.verb_scores))
+            noun_index = int(np.argmax(noun_scores))
+            verb_score = float(prediction.verb_scores[verb_index])
+            noun_score = noun_scores[noun_index]
 
-        # Thresholds are development heuristics until a labelled validation split is available.
-        verb, noun = self.vocab.verbs[verb_index], self.vocab.nouns[noun_index]
-        if verb_score < 0.12:
-            verb = "other" if "other" in self.vocab.verbs else ""
-        if noun_score < 0.12:
-            noun = "other" if "other" in self.vocab.nouns else ""
-        if not (verb and noun) or (verb, noun) == ("other", "other"):
-            return
+            # Thresholds are development heuristics for custom vocabularies without a prior.
+            verb, noun = self.vocab.verbs[verb_index], self.vocab.nouns[noun_index]
+            if verb_score < 0.12:
+                verb = "other" if "other" in self.vocab.verbs else ""
+            if noun_score < 0.12:
+                noun = "other" if "other" in self.vocab.nouns else ""
+            if not (verb and noun) or (verb, noun) == ("other", "other"):
+                return
         sample.label = Label(verb=verb, noun=noun)
         sample.visual_score = 0.60 * verb_score + 0.40 * noun_score
         if hands and depths and prediction.boxes:

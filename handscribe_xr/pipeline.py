@@ -67,6 +67,7 @@ class Analysis:
     motion: list[list[int | float]]
     hands: list[dict]
     video_categories: tuple[tuple[str, float], ...] = ()
+    samples: tuple[Sample, ...] = ()
 
 
 def _display_frame(frame: av.VideoFrame, rotation: int) -> np.ndarray:
@@ -222,6 +223,10 @@ def _prepare_samples(
         filled = {frame.frame: frame.hands for frame in bridge_dropouts(smoothed, config.max_interp_gap)}
     previous: dict[int, tuple[int, float, float]] = {}
     landmarks = []
+    verb_offset = (
+        semantic.verb_offsets([key.prediction for key in keys if key.prediction is not None])
+        if semantic is not None else None
+    )
     for key in keys:
         sample = key.sample
         sharp, light, variation = key.qc
@@ -254,7 +259,7 @@ def _prepare_samples(
             landmarks.append({"time_ms": sample.time_ms, "hands": view})
         sample.hand_motion = max(speeds) if speeds else None
         if semantic is not None and key.prediction is not None and not bad_cover:
-            semantic.label(sample, key.prediction, detected)
+            semantic.label(sample, key.prediction, detected, verb_offset)
 
     return Diagnostics(
         sampled_frames=processed,
@@ -308,4 +313,5 @@ def analyze(
         )
     stride = max(1, math.ceil(len(keys) / 150))
     motion = [[key.sample.time_ms, round(key.sample.motion, 3)] for key in keys[::stride]]
-    return Analysis(report=report, motion=motion, hands=hands, video_categories=video_categories)
+    return Analysis(report=report, motion=motion, hands=hands, video_categories=video_categories,
+                    samples=tuple(timeline.samples))

@@ -161,3 +161,35 @@ def test_video_id_comes_from_input_then_output_name(tmp_path):
 def test_payload_passes_strict_validator():
     payload = payload_for(fake_analysis(duration=561.53), duration=561.53, video_id="P01_11")
     assert not strict_failures(payload, "P01_11")
+
+
+def test_segments_carry_ranked_verb_hypotheses(monkeypatch):
+    import numpy as np
+
+    from handscribe_xr import track04
+
+    verbs = classes()["verbs"]
+    posterior = np.zeros(len(verbs))
+    posterior[verbs.index("open")], posterior[verbs.index("close")], posterior[verbs.index("take")] = 0.5, 0.3, 0.1
+    label = SimpleNamespace(verb="open", noun="fridge")
+    analysis = fake_analysis()
+    analysis.report.actions[0].label = label
+    analysis.samples = [SimpleNamespace(time_ms=t, label=label, verb_posterior=posterior) for t in (12_500, 13_000)]
+    monkeypatch.setattr(track04, "VERB_HYPOTHESES", 3)
+    actions = payload_for(analysis)["actions"]
+    assert [(a["verb"], a["noun"]) for a in actions] == [("open", "fridge"), ("close", "fridge"), ("take", "fridge")]
+    assert [a["score"] for a in actions] == pytest.approx([0.82, 0.82 * 0.6, 0.82 * 0.2], abs=1e-4)
+    assert all(a["segment"] == [12.4, 18.9] for a in actions)
+
+
+def test_action_cap_keeps_highest_scores(monkeypatch):
+    from handscribe_xr import track04
+
+    monkeypatch.setattr(track04, "MAX_ACTIONS", 2)
+    analysis = fake_analysis()
+    base = analysis.report.actions[0]
+    analysis.report.actions = [
+        SimpleNamespace(start_ms=1000 * i, end_ms=1000 * i + 500, label=base.label, confidence=c)
+        for i, c in enumerate((0.9, 0.1, 0.8))
+    ]
+    assert [a["score"] for a in payload_for(analysis)["actions"]] == [0.9, 0.8]

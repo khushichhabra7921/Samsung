@@ -24,6 +24,7 @@ class Sample:
     contact: float | None = None
     hand_motion: float | None = None
     conflict: float | None = None
+    verb_posterior: np.ndarray | None = None
 
 
 @dataclass(frozen=True, slots=True)
