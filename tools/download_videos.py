@@ -22,10 +22,14 @@ import argparse
 import csv
 import hashlib
 import io
+import json
 import shutil
 import subprocess
 import sys
+import threading
+import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +38,8 @@ EPIC_100 = "https://data.bris.ac.uk/datasets/2g1n6qdydwa9u22shpxqzp0t8m"
 EPIC_MD5 = "https://raw.githubusercontent.com/epic-kitchens/epic-kitchens-download-scripts/master/data/md5.csv"
 FPVSUM_LIST = "https://raw.githubusercontent.com/azuxmioy/fpvsum/master/crawler/FPVSum_videolist.csv"
 CHUNK = 8 << 20
+PIECE = 32 << 20  # bytes per ranged request
+CONNECTIONS = 8
 
 
 def fetch_text(url: str) -> str:
@@ -59,30 +65,84 @@ def md5sum(path: Path) -> str:
     return digest.hexdigest()
 
 
-def download_epic(video_id: str, url: str, md5: str, folder: Path) -> bool:
+def remote_size(url: str) -> int:
+    request = urllib.request.Request(url, headers={"Range": "bytes=0-0"})
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return int(response.headers["Content-Range"].rsplit("/", 1)[1])
+
+
+def _fetch_range(url: str, path: Path, start: int, end: int) -> None:
+    request = urllib.request.Request(url, headers={"Range": f"bytes={start}-{end}"})
+    with urllib.request.urlopen(request, timeout=120) as response, path.open("r+b") as stream:
+        if response.status != 206:
+            raise OSError(f"server ignored the range request (HTTP {response.status})")
+        stream.seek(start)
+        while block := response.read(1 << 20):
+            stream.write(block)
+            start += len(block)
+    if start != end + 1:
+        raise OSError("connection closed early")
+
+
+def _download_pieces(url: str, partial: Path, ledger: Path, pieces: list[tuple[int, int]], done: set[int],
+                     connections: int) -> None:
+    lock = threading.Lock()
+
+    def fetch(index: int) -> None:
+        for attempt in range(5):
+            try:
+                _fetch_range(url, partial, *pieces[index])
+                break
+            except OSError:
+                if attempt == 4:
+                    raise
+                time.sleep(2 * (attempt + 1))
+        with lock:
+            done.add(index)
+            ledger.write_text(json.dumps(sorted(done)))
+
+    with ThreadPoolExecutor(connections) as pool:
+        list(pool.map(fetch, [i for i in range(len(pieces)) if i not in done]))
+
+
+def download_epic(video_id: str, url: str, md5: str, folder: Path, connections: int = CONNECTIONS) -> bool:
+    """Parallel ranged download with per-piece resume and MD5 check.
+
+    data.bris.ac.uk serves about 0.9 MB/s per connection, so pieces are fetched concurrently.
+    Finished pieces are recorded next to the .part file, so an interrupted run resumes.
+    """
     target = folder / f"{video_id}.MP4"
     if target.is_file() and md5sum(target) == md5:
         print(f"ok      {video_id} (already downloaded)")
         return True
-    partial = target.with_suffix(".MP4.part")
-    for attempt in range(3):
-        offset = partial.stat().st_size if partial.exists() else 0
-        request = urllib.request.Request(url, headers={"Range": f"bytes={offset}-"} if offset else {})
+    partial, ledger = target.with_suffix(".MP4.part"), target.with_suffix(".MP4.pieces")
+    for _ in range(2):
         try:
-            with urllib.request.urlopen(request, timeout=120) as response, \
-                    partial.open("ab" if response.status == 206 else "wb") as stream:
-                total = offset + int(response.headers.get("Content-Length", 0))
-                print(f"fetch   {video_id} {total / 1e9:.2f} GB" + (" (resuming)" if response.status == 206 else ""))
-                shutil.copyfileobj(response, stream, CHUNK)
+            size = remote_size(url)
+        except (OSError, KeyError, ValueError) as exc:
+            print(f"FAILED  {video_id}: {exc}", file=sys.stderr)
+            return False
+        pieces = [(start, min(start + PIECE, size) - 1) for start in range(0, size, PIECE)]
+        done = set(json.loads(ledger.read_text())) if ledger.exists() and partial.exists() else set()
+        if not partial.exists() or partial.stat().st_size != size:
+            with partial.open("wb") as stream:
+                stream.truncate(size)
+            done = set()
+        todo = [i for i in range(len(pieces)) if i not in done]
+        print(f"fetch   {video_id} {size / 1e9:.2f} GB, {len(todo)}/{len(pieces)} pieces, {connections} connections")
+        try:
+            _download_pieces(url, partial, ledger, pieces, done, connections)
         except OSError as exc:
-            print(f"retry   {video_id}: {exc}", file=sys.stderr)
-            continue
+            print(f"FAILED  {video_id}: {exc} (re-run to resume)", file=sys.stderr)
+            return False
         if md5sum(partial) == md5:
             partial.replace(target)
+            ledger.unlink(missing_ok=True)
             print(f"ok      {video_id}")
             return True
         print(f"bad md5 {video_id}; downloading again", file=sys.stderr)
         partial.unlink()
+        ledger.unlink(missing_ok=True)
     return False
 
 
@@ -135,6 +195,8 @@ def main() -> int:
     parser.add_argument("--dataset", choices=("all", "epic", "fpvsum"), default="all")
     parser.add_argument("--ids", help="Comma-separated video IDs to fetch (default: all in the dataset)")
     parser.add_argument("--max-height", type=int, default=720, help="FPVSum resolution cap (default 720)")
+    parser.add_argument("--connections", type=int, default=CONNECTIONS,
+                        help=f"Parallel connections per EPIC file (default {CONNECTIONS}; ~0.9 MB/s each)")
     parser.add_argument("--list", action="store_true", help="Print the source URLs without downloading")
     args = parser.parse_args()
 
@@ -169,7 +231,8 @@ def main() -> int:
     failed = list(missing_source)
     if epic:
         (args.dest / "epic").mkdir(exist_ok=True)
-        failed += [v for v in epic if v in sources and not download_epic(v, *sources[v], args.dest / "epic")]
+        failed += [v for v in epic if v in sources and not download_epic(
+            v, *sources[v], args.dest / "epic", args.connections)]
     if fpv:
         command = youtube_downloader()
         if command is None:
