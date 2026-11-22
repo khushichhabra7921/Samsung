@@ -22,27 +22,34 @@ OWLv2 object detection runs on every keyframe (3 per second of video) and is abo
 | Apple M4 (CPU; its GPU was not faster) | ~5.5 s per second of video (measured) | ~3.5 days |
 | NVIDIA GPU with `HANDSCRIBE_DEVICE=cuda` (OWLv2 and SigLIP in fp16) | not measured; expected several times faster | well under a day |
 
-### Running the EPIC share on the RTX 3050 laptop
+### Running EPIC on a free Colab GPU (any laptop, including Windows)
 
-From the repository root, on Windows use PowerShell, or WSL with the same commands:
+Open [tools/colab_epic.ipynb](colab_epic.ipynb) in Google Colab: **File → Open notebook → GitHub**, then paste `https://github.com/khushichhabra7921/Samsung/blob/main/tools/colab_epic.ipynb`.
+
+1. Choose a **T4 GPU** runtime.
+2. Set `PART`; each person runs a different one.
+3. **Run all.**
+
+Outputs go to `My Drive/track04_outputs` as they finish. After a disconnect, **Run all** again to resume. `--part` splits EPIC into fixed parts balanced by video length: 2 parts are 6.5 h and 6.8 h of video, and 3 parts are about 4.3–4.6 h each. Two or three Google accounts can work in parallel without repeating videos.
+
+Colab speed has not been measured. Each video prints `done in … s`, so check the first few lines to see how long a part will take.
+
+### Running on any machine with an NVIDIA GPU
 
 ```bash
 git pull
-python3.12 -m venv .venv          # Windows: py -3.12 -m venv .venv
+python3.12 -m venv .venv          # Windows: py -3.12 -m venv .venv, then use .venv\Scripts\python
 .venv/bin/python -m pip install torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cu128
 .venv/bin/python -m pip install -r tools/requirements.txt
 .venv/bin/python tools/download_weights.py
 HANDSCRIBE_DEVICE=cuda HANDSCRIBE_TEAM_ID=404NotFound \
-  .venv/bin/python tools/generate_outputs.py --dataset epic --fetch <folder with ~10 GB free>
-git add outputs/*.json && git commit -m "Add EPIC outputs" && git push
+  .venv/bin/python tools/generate_outputs.py --dataset epic [--part K/N] --fetch <folder with ~10 GB free>
 ```
-
-On Windows, `.venv/bin/python` becomes `.venv\Scripts\python`. Set the variables with `$env:HANDSCRIBE_DEVICE="cuda"` and `$env:HANDSCRIBE_TEAM_ID="404NotFound"`. If PyTorch can't see the GPU, the run stops with "CUDA was requested…". If that happens, install the PyTorch wheel matching the laptop's CUDA driver from pytorch.org.
 
 ## Checks
 
 ```bash
-python -m pytest -q tools/tests          # 48 tests, no model weights needed
+python -m pytest -q tools/tests          # 51 tests, no model weights needed
 python -m ruff check tools && python -m ruff check --line-length 110 code/handscribe_xr
 ```
 
@@ -80,6 +87,6 @@ Absolute scores are low, as expected for a zero-shot system without a trained ac
 
 ## Still to do
 
-1. Generate the outputs: FPVSum on the Mac, EPIC on the RTX 3050 laptop (see above).
+1. Generate the outputs: FPVSum on the Mac, EPIC on Colab (`--part` split across accounts; see above).
 2. Confirm the organiser-assigned team ID, then run `python tools/set_team_id.py <ID>`.
 3. Commit `outputs/*.json` if the repository itself is submitted. Upload `dist/<ID>.zip` if an archive is required.

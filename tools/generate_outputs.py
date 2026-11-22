@@ -49,6 +49,19 @@ def find_videos(folder: Path, wanted: set[str]) -> dict[str, Path]:
     return found
 
 
+def assign_part(order: list[str], part: str) -> list[str]:
+    """Deal videos (already sorted by length) round-robin into N parts and return part K."""
+    if not part:
+        return order
+    try:
+        k, n = (int(x) for x in part.split("/"))
+    except ValueError:
+        raise SystemExit(f"--part must look like 1/2, not {part!r}") from None
+    if not 1 <= k <= n:
+        raise SystemExit(f"--part {part}: K must be between 1 and N")
+    return order[k - 1::n]
+
+
 class Fetcher(threading.Thread):
     """Downloads queued videos ahead of processing while the disk has room."""
 
@@ -123,6 +136,9 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="Regenerate outputs that already validate")
     parser.add_argument("--dataset", choices=("all", "epic", "fpvsum"), default="all",
                         help="Only process one dataset (e.g. split the work across two machines)")
+    parser.add_argument("--part", default="", metavar="K/N",
+                        help="Only process part K of N (e.g. 1/2 on one machine, 2/2 on another). Parts are fixed "
+                             "and balanced by video length, so machines never repeat each other's videos.")
     args = parser.parse_args()
     if not args.team_id.strip():
         parser.error("set HANDSCRIBE_TEAM_ID or pass --team-id")
@@ -141,12 +157,14 @@ def main() -> int:
 
     local = find_videos(args.videos, set(manifest)) if args.videos else {}
     wanted = {"all": set(datasets.values()), "epic": {"epic_kitchens_100"}, "fpvsum": {"fpvsum"}}[args.dataset]
-    todo = sorted((v for v in manifest if datasets[v] in wanted and (args.force or not valid(v))),
-                  key=lambda v: (datasets[v] != "fpvsum", manifest[v]))
-    skipped = sum(datasets[v] in wanted for v in manifest) - len(todo)
+    order = sorted((v for v in manifest if datasets[v] in wanted), key=lambda v: (datasets[v] != "fpvsum", manifest[v]))
+    mine = set(assign_part(order, args.part))
+    todo = [v for v in order if v in mine and (args.force or not valid(v))]
+    skipped = len(mine) - len(todo)
     to_fetch = [v for v in todo if v not in local] if args.fetch else []
     missing = sorted(v for v in todo if v not in local and v not in to_fetch)
-    print(f"{skipped + len(todo)} {args.dataset} manifest videos: {skipped} already valid, {len(todo)} to do "
+    print(f"{len(mine)} {args.dataset} manifest videos{f' (part {args.part})' if args.part else ''}: "
+          f"{skipped} already valid, {len(todo)} to do "
           f"({len(todo) - len(to_fetch) - len(missing)} local, {len(to_fetch)} to fetch, {len(missing)} not found)")
 
     fetcher = Fetcher(to_fetch, datasets, args.fetch, args.connections) if to_fetch else None
